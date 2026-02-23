@@ -1,0 +1,19 @@
+﻿  BoundingSphereMS.hlsl
+  DebugDrawPS.hlsl
+  FrustumMS.hlsl
+  MeshletAS.hlsl
+  MeshletMS.hlsl
+  MeshletPS.hlsl
+  NormalConeMS.hlsl
+  stdafx.cpp
+  CullDataVisualizer.cpp
+  D3D12MeshletCull.cpp
+  DXSample.cpp
+  FrustumVisualizer.cpp
+  Main.cpp
+  Model.cpp
+  SimpleCamera.cpp
+  Win32Application.cpp
+  Создание кода...
+     Создается библиотека bin\x64\Debug\D3D12MeshletCull.lib и объект bin\x64\Debug\D3D12MeshletCull.exp
+  D3D12MeshletCull.vcxproj -> C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletCull\bin\x64\Debug\D3D12MeshletCull.exe

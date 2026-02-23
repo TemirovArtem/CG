@@ -1,0 +1,4 @@
+C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletGenerator\bin\x64\Debug\D3D12\D3D12Core.dll
+C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletGenerator\bin\x64\Debug\D3D12\D3D12Core.pdb
+C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletGenerator\bin\x64\Debug\D3D12\D3D12SDKLayers.dll
+C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletGenerator\bin\x64\Debug\D3D12\D3D12SDKLayers.pdb

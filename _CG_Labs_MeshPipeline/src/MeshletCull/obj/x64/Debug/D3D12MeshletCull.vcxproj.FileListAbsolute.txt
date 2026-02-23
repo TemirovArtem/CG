@@ -1,0 +1,8 @@
+C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletCull\bin\x64\Debug\D3D12\D3D12Core.dll
+C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletCull\bin\x64\Debug\D3D12\D3D12Core.pdb
+C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletCull\bin\x64\Debug\D3D12\D3D12SDKLayers.dll
+C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletCull\bin\x64\Debug\D3D12\D3D12SDKLayers.pdb
+C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletCull\bin\x64\Debug\dxcompiler.dll
+C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletCull\bin\x64\Debug\dxcompiler.pdb
+C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletCull\bin\x64\Debug\dxil.dll
+C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletCull\bin\x64\Debug\dxil.pdb

@@ -1,0 +1,14 @@
+^C:\1_DX12\REPO\CG\_CG_LABS_MESHPIPELINE\SRC\MESHLETCULL\BOUNDINGSPHEREMS.HLSL
+dxc.exe -nologo -Tms_6_5 -E"main" -Zi -Qembed_debug -Fo"bin\x64\Debug\BoundingSphereMS.cso" "C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletCull\BoundingSphereMS.hlsl"
+^C:\1_DX12\REPO\CG\_CG_LABS_MESHPIPELINE\SRC\MESHLETCULL\DEBUGDRAWPS.HLSL
+dxc.exe -nologo -Tps_6_3 -E"main" -Zi -Qembed_debug -Fo"bin\x64\Debug\DebugDrawPS.cso" "C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletCull\DebugDrawPS.hlsl"
+^C:\1_DX12\REPO\CG\_CG_LABS_MESHPIPELINE\SRC\MESHLETCULL\FRUSTUMMS.HLSL
+dxc.exe -nologo -Tms_6_5 -E"main" -Zi -Qembed_debug -Fo"bin\x64\Debug\FrustumMS.cso" "C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletCull\FrustumMS.hlsl"
+^C:\1_DX12\REPO\CG\_CG_LABS_MESHPIPELINE\SRC\MESHLETCULL\MESHLETAS.HLSL
+dxc.exe -nologo -Tas_6_5 -E"main" -Zi -Qembed_debug -Fo"bin\x64\Debug\MeshletAS.cso" "C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletCull\MeshletAS.hlsl"
+^C:\1_DX12\REPO\CG\_CG_LABS_MESHPIPELINE\SRC\MESHLETCULL\MESHLETMS.HLSL
+dxc.exe -nologo -Tms_6_5 -E"main" -Zi -Qembed_debug -Fo"bin\x64\Debug\MeshletMS.cso" "C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletCull\MeshletMS.hlsl"
+^C:\1_DX12\REPO\CG\_CG_LABS_MESHPIPELINE\SRC\MESHLETCULL\MESHLETPS.HLSL
+dxc.exe -nologo -Tps_6_3 -E"main" -Zi -Qembed_debug -Fo"bin\x64\Debug\MeshletPS.cso" "C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletCull\MeshletPS.hlsl"
+^C:\1_DX12\REPO\CG\_CG_LABS_MESHPIPELINE\SRC\MESHLETCULL\NORMALCONEMS.HLSL
+dxc.exe -nologo -Tms_6_5 -E"main" -Zi -Qembed_debug -Fo"bin\x64\Debug\NormalConeMS.cso" "C:\1_DX12\repo\CG\_CG_Labs_MeshPipeline\src\MeshletCull\NormalConeMS.hlsl"

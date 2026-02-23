@@ -1,0 +1,4 @@
+^C:\_CG_LABS_MESHPIPELINE\SRC\MESHLETRENDER\MESHLETMS.HLSL
+dxc.exe -nologo -Tms_6_5 -E"main" -Zi -Qembed_debug -Fo"bin\x64\Debug\MeshletMS.cso" "C:\_CG_Labs_MeshPipeline\src\MeshletRender\MeshletMS.hlsl"
+^C:\_CG_LABS_MESHPIPELINE\SRC\MESHLETRENDER\MESHLETPS.HLSL
+dxc.exe -nologo -Tps_6_3 -E"main" -Zi -Qembed_debug -Fo"bin\x64\Debug\MeshletPS.cso" "C:\_CG_Labs_MeshPipeline\src\MeshletRender\MeshletPS.hlsl"
