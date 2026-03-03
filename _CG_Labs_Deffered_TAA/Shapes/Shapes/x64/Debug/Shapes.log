@@ -1,0 +1,64 @@
+﻿  d3dApp.cpp
+  d3dUtil.cpp
+  DDSTextureLoader.cpp
+  GameTimer.cpp
+  GeometryGenerator.cpp
+  imgui_impl_dx10.cpp
+  imgui_impl_dx11.cpp
+  imgui_impl_dx12.cpp
+  imgui_impl_dx9.cpp
+  imgui_impl_win32.cpp
+  imgui.cpp
+  imgui_demo.cpp
+  imgui_draw.cpp
+  imgui_tables.cpp
+  imgui_widgets.cpp
+  MathHelper.cpp
+  FrameResource.cpp
+  ShapesApp.cpp
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(2037,23): warning C4018: <: несоответствие типов со знаком и без знака
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3171,19): warning C4267: инициализация: преобразование из "size_t" в "UINT"; возможна потеря данных
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3614,23): warning C4018: <: несоответствие типов со знаком и без знака
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3844,54): warning C4267: инициализация: преобразование из "size_t" в "UINT"; возможна потеря данных
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3844,33): warning C4267: инициализация: преобразование из "size_t" в "const UINT"; возможна потеря данных
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3957,69): warning C4244: аргумент: преобразование "wchar_t" в "const _Elem", возможна потеря данных
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3957,69): warning C4244:         with
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3957,69): warning C4244:         [
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3957,69): warning C4244:             _Elem=char
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3957,69): warning C4244:         ]
+C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\xstring(2749,53): warning C4244: аргумент: преобразование "wchar_t" в "const _Elem", возможна потеря данных
+C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\xstring(2749,53): warning C4244:         with
+C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\xstring(2749,53): warning C4244:         [
+C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\xstring(2749,53): warning C4244:             _Elem=char
+C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\xstring(2749,53): warning C4244:         ]
+  (компиляция исходного файла "ShapesApp.cpp")
+      C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\xstring(2749,53):
+      контекст создания экземпляра шаблона (сначала самый старый)
+          C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(881,47):
+          выполняется компиляция ссылки на экземпляр шаблон функции "std::basic_string<char,std::char_traits<char>,std::allocator<char>>::basic_string<std::_String_iterator<std::_String_val<std::_Simple_types<_Elem>>>,0>(_Iter,_Iter,const _Alloc &)"
+          with
+          [
+              _Elem=wchar_t,
+              _Iter=std::_String_iterator<std::_String_val<std::_Simple_types<wchar_t>>>,
+              _Alloc=std::allocator<char>
+          ]
+              C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(881,34):
+              см. первую ссылку на "std::basic_string<char,std::char_traits<char>,std::allocator<char>>::basic_string" в "ShapesApp::Initialize"
+          C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\xstring(2590,17):
+          выполняется компиляция ссылки на экземпляр шаблон функции "void std::basic_string<char,std::char_traits<char>,std::allocator<char>>::_Construct_from_iter<wchar_t*,wchar_t*,_Size_type>(_Iter,const _Sent,_Size)"
+          with
+          [
+              _Size_type=unsigned __int64,
+              _Iter=wchar_t *,
+              _Sent=wchar_t *,
+              _Size=unsigned __int64
+          ]
+  
+  TerrainMesh.cpp
+  TerrainQuadtree.cpp
+  Создание кода...
+  Компиляция...
+  TerrainRenderer.cpp
+  TerrainSystem.cpp
+  Создание кода...
+  Shapes.vcxproj -> C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\x64\Debug\Shapes.exe

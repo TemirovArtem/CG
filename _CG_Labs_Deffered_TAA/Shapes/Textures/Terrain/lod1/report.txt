@@ -1,0 +1,43 @@
+
+──────────────────────────────────────────────────────────────────────────────────────────  GAEA BUILD SWARM  2.2.1.0 ──
+
+                                                      
+          Filename:  │ C:/Gaea Projects/hill.terrain  
+    Build Location:  │ C:\Gaea Builds                 
+        Build Type:  │ Standard Cropped to Tiles      
+  Build Resolution:  │ 1024 × 1024                    
+     Build Profile:  │ None / Last Saved Settings     
+             Nodes:  │ 13 to build                    
+                     │ 06 to export                   
+             Tiles:  │ 4                              
+                                                      
+
+──────────────────────────────────────────────────────────────────────────────────────────  GAEA BUILD SWARM  2.2.1.0 ──
+
+                                                      
+          Filename:  │ C:/Gaea Projects/hill.terrain  
+    Build Location:  │ C:\Gaea Builds                 
+        Build Type:  │ Standard Cropped to Tiles      
+  Build Resolution:  │ 1024 × 1024                    
+     Build Profile:  │ None / Last Saved Settings     
+             Nodes:  │ 13 to build                    
+                     │ 06 to export                   
+             Tiles:  │ 4                              
+                                                      
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────── Build Report ──
+
+              Build Results                               Statistics                
+                                                                                    
+          Result: │ Success                  MultiFractal │ 0:00:00.464             
+      Resolution: │ 1024                         Erosion2 │ 0:00:01.125             
+      Node Count: │ 13                         Weathering │ 0:00:01.406             
+      Start Time: │ 01/22/2026 22:58:14      ColorErosion │ 0:00:01.573             
+        End Time: │ 01/22/2026 22:58:34          Erosion2 │ 0:00:00.497             
+        Duration: │ 00:00:19.8707238             Outcrops │ 0:00:03.963             
+  Non-Build Time: │ 00:00:08.7097238                Scree │ 0:00:02.02              
+                                                          │                         
+                                                  Fastest │ Mesher @ 0:00:00.001    
+                                                  Slowest │ Outcrops @ 0:00:03.963  
+                                                                                    
+                                            * nodes that took <100ms are excluded.  

@@ -1,0 +1,188 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="imgui">
+      <UniqueIdentifier>{d084ab8a-1033-48e8-ab26-8670802a332a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="imgui\backend">
+      <UniqueIdentifier>{a242a4f2-32df-4ef9-abe0-94e8a2a8856c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Terrain">
+      <UniqueIdentifier>{730b91a4-28b9-4254-9051-6fdab4d922bc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="imgui\Shaders">
+      <UniqueIdentifier>{d4a5df6e-09d3-4876-95cb-ceecb75a1157}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="FrameResource.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ShapesApp.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common\d3dApp.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common\d3dUtil.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common\GameTimer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common\GeometryGenerator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common\MathHelper.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common\DDSTextureLoader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common\imgui\imgui.cpp">
+      <Filter>imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common\imgui\imgui_demo.cpp">
+      <Filter>imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common\imgui\imgui_draw.cpp">
+      <Filter>imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common\imgui\imgui_tables.cpp">
+      <Filter>imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common\imgui\imgui_widgets.cpp">
+      <Filter>imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common\imgui\backends\imgui_impl_dx9.cpp">
+      <Filter>imgui\backend</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common\imgui\backends\imgui_impl_dx10.cpp">
+      <Filter>imgui\backend</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common\imgui\backends\imgui_impl_dx11.cpp">
+      <Filter>imgui\backend</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common\imgui\backends\imgui_impl_dx12.cpp">
+      <Filter>imgui\backend</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Common\imgui\backends\imgui_impl_win32.cpp">
+      <Filter>imgui\backend</Filter>
+    </ClCompile>
+    <ClCompile Include="Terrain\TerrainMesh.cpp">
+      <Filter>Source Files\Terrain</Filter>
+    </ClCompile>
+    <ClCompile Include="Terrain\TerrainQuadtree.cpp">
+      <Filter>Source Files\Terrain</Filter>
+    </ClCompile>
+    <ClCompile Include="Terrain\TerrainRenderer.cpp">
+      <Filter>Source Files\Terrain</Filter>
+    </ClCompile>
+    <ClCompile Include="Terrain\TerrainSystem.cpp">
+      <Filter>Source Files\Terrain</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="FrameResource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\d3dApp.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\d3dUtil.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\d3dx12.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\GameTimer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\GeometryGenerator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\MathHelper.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\UploadBuffer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\DDSTextureLoader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\imgui\imconfig.h">
+      <Filter>imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\imgui\imgui.h">
+      <Filter>imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\imgui\imgui_internal.h">
+      <Filter>imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\imgui\imstb_rectpack.h">
+      <Filter>imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\imgui\imstb_textedit.h">
+      <Filter>imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\imgui\imstb_truetype.h">
+      <Filter>imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\imgui\backends\imgui_impl_dx9.h">
+      <Filter>imgui\backend</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\imgui\backends\imgui_impl_dx10.h">
+      <Filter>imgui\backend</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\imgui\backends\imgui_impl_dx11.h">
+      <Filter>imgui\backend</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\imgui\backends\imgui_impl_dx12.h">
+      <Filter>imgui\backend</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Common\imgui\backends\imgui_impl_win32.h">
+      <Filter>imgui\backend</Filter>
+    </ClInclude>
+    <ClInclude Include="Terrain\TerrainMesh.h">
+      <Filter>Source Files\Terrain</Filter>
+    </ClInclude>
+    <ClInclude Include="Terrain\TerrainQuadtree.h">
+      <Filter>Source Files\Terrain</Filter>
+    </ClInclude>
+    <ClInclude Include="Terrain\TerrainRenderer.h">
+      <Filter>Source Files\Terrain</Filter>
+    </ClInclude>
+    <ClInclude Include="Terrain\TerrainSystem.h">
+      <Filter>Source Files\Terrain</Filter>
+    </ClInclude>
+    <ClInclude Include="Terrain\TerrainTypes.h">
+      <Filter>Source Files\Terrain</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="Shaders\Geometry.hlsl">
+      <Filter>imgui\Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\Lighting.hlsl">
+      <Filter>imgui\Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\LightingUtil.hlsl">
+      <Filter>imgui\Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\Wireframe.hlsl">
+      <Filter>imgui\Shaders</Filter>
+    </FxCompile>
+  </ItemGroup>
+</Project>
