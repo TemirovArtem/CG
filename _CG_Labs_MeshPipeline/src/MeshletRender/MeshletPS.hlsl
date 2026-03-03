@@ -21,11 +21,17 @@ struct VertexOut
 {
     float4 PositionHS   : SV_Position;
     float3 PositionVS   : POSITION0;
+    float3 PositionWS   : POSITION1;
     float3 Normal       : NORMAL0;
+    float2 TexCoord     : TEXCOORD0;
     uint   MeshletIndex : COLOR0;
 };
 
 ConstantBuffer<Constants> Globals : register(b0);
+Texture2D<float4> DiffuseTexture : register(t4);
+Texture2D<float4> NormalTexture : register(t5);
+Texture2D<float4> AOTexture : register(t6);
+SamplerState LinearSampler : register(s0);
 
 float4 main(VertexOut input) : SV_TARGET
 {
@@ -35,6 +41,7 @@ float4 main(VertexOut input) : SV_TARGET
 
     float3 diffuseColor;
     float shininess;
+    
     if (Globals.DrawMeshlets)
     {
         uint meshletIndex = input.MeshletIndex;
@@ -46,7 +53,12 @@ float4 main(VertexOut input) : SV_TARGET
     }
     else
     {
-        diffuseColor = 0.8;
+        // Use standard UV mapping from model
+        float4 diffuseSample = DiffuseTexture.Sample(LinearSampler, input.TexCoord);
+        float ao = AOTexture.Sample(LinearSampler, input.TexCoord).r;
+        
+        // Use diffuse texture color with ambient occlusion
+        diffuseColor = diffuseSample.rgb * ao;
         shininess = 64.0;
     }
 

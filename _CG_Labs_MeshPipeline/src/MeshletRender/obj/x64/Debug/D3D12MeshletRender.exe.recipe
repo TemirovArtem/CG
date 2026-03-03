@@ -2,7 +2,7 @@
 <Project>
   <ProjectOutputs>
     <ProjectOutput>
-      <FullPath>C:\_CG_Labs_MeshPipeline\src\MeshletRender\bin\x64\Debug\D3D12MeshletRender.exe</FullPath>
+      <FullPath>C:\VS_Code_Projects\src\_CG_Labs_MeshPipeline\src\MeshletRender\bin\x64\Debug\D3D12MeshletRender.exe</FullPath>
     </ProjectOutput>
   </ProjectOutputs>
   <ContentFiles />

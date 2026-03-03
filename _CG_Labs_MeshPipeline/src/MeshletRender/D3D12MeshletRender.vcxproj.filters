@@ -22,6 +22,7 @@
     <ClCompile Include="SimpleCamera.cpp">
       <Filter>Source Files\Util</Filter>
     </ClCompile>
+    <ClCompile Include="..\TextureLoader\DDSTextureLoader12.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="stdafx.h">
@@ -51,6 +52,7 @@
     <ClInclude Include="Win32Application.h">
       <Filter>Header Files\Util</Filter>
     </ClInclude>
+    <ClInclude Include="..\TextureLoader\DDSTextureLoader12.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Assets">
@@ -73,6 +75,9 @@
     </Filter>
     <Filter Include="Header Files\Util">
       <UniqueIdentifier>{730cb925-a666-46ec-9ec9-969a95925689}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shaders">
+      <UniqueIdentifier>{57f69b01-41da-41dc-ad4a-6a1726d89512}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>

@@ -32,6 +32,7 @@ D3D12MeshletRender::D3D12MeshletRender(UINT width, UINT height, std::wstring nam
     , m_frameCounter(0)
     , m_fenceEvent{}
     , m_fenceValues{}
+    , m_drawMeshlets(false) // Start with texture mode
 { }
 
 void D3D12MeshletRender::OnInit()
@@ -149,7 +150,7 @@ void D3D12MeshletRender::LoadPipeline()
 
         m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
-        // Describe and create a render target view (RTV) descriptor heap.
+        // Describe and create a depth stencil view (DSV) descriptor heap.
         D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {};
         dsvHeapDesc.NumDescriptors = 1;
         dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
@@ -157,6 +158,13 @@ void D3D12MeshletRender::LoadPipeline()
         ThrowIfFailed(m_device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvHeap)));
 
         m_dsvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+
+        // Describe and create a shader resource view (SRV) descriptor heap.
+        D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
+        srvHeapDesc.NumDescriptors = 3; // Diffuse, Normal, AO
+        srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        ThrowIfFailed(m_device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_srvHeap)));
     }
 
     // Create frame resources.
@@ -281,18 +289,48 @@ void D3D12MeshletRender::LoadAssets()
 
 #ifdef _DEBUG
     // Mesh shader file expects a certain vertex layout; assert our mesh conforms to that layout.
-    const D3D12_INPUT_ELEMENT_DESC c_elementDescs[2] =
-    {
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 1 },
-        { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 1 },
-    };
-
+    // We support models with or without texture coordinates
     for (auto& mesh : m_model)
     {
-        assert(mesh.LayoutDesc.NumElements == 2);
+        OutputDebugStringA("=== Mesh Vertex Layout ===\n");
+        char buffer[256];
+        sprintf_s(buffer, "NumElements: %d\n", mesh.LayoutDesc.NumElements);
+        OutputDebugStringA(buffer);
+        
+        // Check if model has texture coordinates
+        bool hasTexCoords = false;
+        for (uint32_t i = 0; i < mesh.LayoutDesc.NumElements; ++i)
+        {
+            sprintf_s(buffer, "Element %d: %s, Format: %d, InputSlot: %d, Offset: %d\n", 
+                i, 
+                mesh.LayoutElems[i].SemanticName,
+                mesh.LayoutElems[i].Format,
+                mesh.LayoutElems[i].InputSlot,
+                mesh.LayoutElems[i].AlignedByteOffset);
+            OutputDebugStringA(buffer);
+            
+            if (strcmp(mesh.LayoutElems[i].SemanticName, "TEXCOORD") == 0)
+            {
+                hasTexCoords = true;
+            }
+        }
 
-        for (uint32_t i = 0; i < _countof(c_elementDescs); ++i)
-            assert(std::memcmp(&mesh.LayoutElems[i], &c_elementDescs[i], sizeof(D3D12_INPUT_ELEMENT_DESC)) == 0);
+        if (!hasTexCoords)
+        {
+            OutputDebugStringA("WARNING: Model does not have texture coordinates. Texturing will use procedural UVs.\n");
+        }
+        else
+        {
+            OutputDebugStringA("Model has texture coordinates!\n");
+        }
+        
+        sprintf_s(buffer, "Vertex Count: %d, Vertex Stride: %d bytes\n", 
+            mesh.VertexCount, 
+            mesh.VertexStrides.size() > 0 ? mesh.VertexStrides[0] : 0);
+        OutputDebugStringA(buffer);
+
+        // At minimum, we need Position and Normal
+        assert(mesh.LayoutDesc.NumElements >= 2);
     }
 #endif
     
@@ -308,11 +346,254 @@ void D3D12MeshletRender::LoadAssets()
             ThrowIfFailed(HRESULT_FROM_WIN32(GetLastError()));
         }
 
+        // Load texture after fence is created
+        OutputDebugStringA("=== Starting LoadTexture ===\n");
+        LoadTexture();
+        OutputDebugStringA("=== LoadTexture completed ===\n");
+
         // Wait for the command list to execute; we are reusing the same command 
         // list in our main loop but for now, we just want to wait for setup to 
         // complete before continuing.
         WaitForGpu();
     }
+}
+
+#include "..\TextureLoader\DDSTextureLoader12.h"
+
+void D3D12MeshletRender::LoadTexture()
+{
+    // Load three DDS textures: Diffuse, Normal, AO
+    std::unique_ptr<uint8_t[]> ddsDataDiffuse;
+    std::unique_ptr<uint8_t[]> ddsDataNormal;
+    std::unique_ptr<uint8_t[]> ddsDataAO;
+    
+    std::vector<D3D12_SUBRESOURCE_DATA> subresourcesDiffuse;
+    std::vector<D3D12_SUBRESOURCE_DATA> subresourcesNormal;
+    std::vector<D3D12_SUBRESOURCE_DATA> subresourcesAO;
+
+    // Get texture paths
+    // fractal
+    std::wstring diffusePath = GetAssetFullPath(L"..\\..\\..\\..\\Assets\\BPine03_DiffuseMap.dds");
+    std::wstring normalPath = GetAssetFullPath(L"..\\..\\..\\..\\Assets\\BPine03_NormalsMap.dds");
+    std::wstring aoPath = GetAssetFullPath(L"..\\..\\..\\..\\Assets\\BPine03_ao.dds");
+
+    // helmet
+    //std::wstring diffusePath = GetAssetFullPath(L"..\\..\\..\\..\\Assets\\018P_01SET_05SHOT_4_DIFFUSE_CLEAN.dds");
+    //std::wstring normalPath = GetAssetFullPath(L"..\\..\\..\\..\\Assets\\018P_01SET_05SHOT_4_NORMAL.dds");
+    //std::wstring aoPath = GetAssetFullPath(L"..\\..\\..\\..\\Assets\\018P_01SET_05SHOT_4_AO.dds");
+
+    // Debug output
+    OutputDebugStringW(L"Loading Diffuse: ");
+    OutputDebugStringW(diffusePath.c_str());
+    OutputDebugStringW(L"\n");
+
+    // Load Diffuse texture
+    HRESULT hr = DirectX::LoadDDSTextureFromFile(
+        m_device.Get(),
+        diffusePath.c_str(),
+        &m_textureDiffuse,
+        ddsDataDiffuse,
+        subresourcesDiffuse);
+
+    // Try local path if failed
+    if (FAILED(hr))
+    {
+        diffusePath = GetAssetFullPath(L"BPine03_DiffuseMap.dds");
+        //diffusePath = GetAssetFullPath(L"018P_01SET_05SHOT_4_DIFFUSE_CLEAN.dds");
+        OutputDebugStringW(L"Trying local path: ");
+        OutputDebugStringW(diffusePath.c_str());
+        OutputDebugStringW(L"\n");
+        
+        hr = DirectX::LoadDDSTextureFromFile(
+            m_device.Get(),
+            diffusePath.c_str(),
+            &m_textureDiffuse,
+            ddsDataDiffuse,
+            subresourcesDiffuse);
+    }
+
+    if (FAILED(hr))
+    {
+        char buffer[256];
+        sprintf_s(buffer, "Failed to load diffuse texture! HRESULT: 0x%08X\n", hr);
+        OutputDebugStringA(buffer);
+        return;
+    }
+    OutputDebugStringA("Diffuse texture loaded successfully\n");
+
+    // Load Normal texture
+    OutputDebugStringW(L"Loading Normal: ");
+    OutputDebugStringW(normalPath.c_str());
+    OutputDebugStringW(L"\n");
+    
+    hr = DirectX::LoadDDSTextureFromFile(
+        m_device.Get(),
+        normalPath.c_str(),
+        &m_textureNormal,
+        ddsDataNormal,
+        subresourcesNormal);
+
+    if (FAILED(hr))
+    {
+        normalPath = GetAssetFullPath(L"BPine03_NormalsMap.dds");
+        //normalPath = GetAssetFullPath(L"018P_01SET_05SHOT_4_NORMAL.dds");
+        hr = DirectX::LoadDDSTextureFromFile(
+            m_device.Get(),
+            normalPath.c_str(),
+            &m_textureNormal,
+            ddsDataNormal,
+            subresourcesNormal);
+    }
+
+    if (FAILED(hr))
+    {
+        char buffer[256];
+        sprintf_s(buffer, "Failed to load normal texture! HRESULT: 0x%08X\n", hr);
+        OutputDebugStringA(buffer);
+        return;
+    }
+    OutputDebugStringA("Normal texture loaded successfully\n");
+
+    // Load AO texture
+    OutputDebugStringW(L"Loading AO: ");
+    OutputDebugStringW(aoPath.c_str());
+    OutputDebugStringW(L"\n");
+    
+    hr = DirectX::LoadDDSTextureFromFile(
+        m_device.Get(),
+        aoPath.c_str(),
+        &m_textureAO,
+        ddsDataAO,
+        subresourcesAO);
+
+    if (FAILED(hr))
+    {
+        aoPath = GetAssetFullPath(L"BPine03_ao.dds");
+        //aoPath = GetAssetFullPath(L"018P_01SET_05SHOT_4_AO.dds");
+        hr = DirectX::LoadDDSTextureFromFile(
+            m_device.Get(),
+            aoPath.c_str(),
+            &m_textureAO,
+            ddsDataAO,
+            subresourcesAO);
+    }
+
+    if (FAILED(hr))
+    {
+        char buffer[256];
+        sprintf_s(buffer, "Failed to load AO texture! HRESULT: 0x%08X\n", hr);
+        OutputDebugStringA(buffer);
+        return;
+    }
+    OutputDebugStringA("AO texture loaded successfully\n");
+
+    // Create upload heap for all textures
+    const UINT64 uploadBufferSizeDiffuse = GetRequiredIntermediateSize(m_textureDiffuse.Get(), 0, static_cast<UINT>(subresourcesDiffuse.size()));
+    const UINT64 uploadBufferSizeNormal = GetRequiredIntermediateSize(m_textureNormal.Get(), 0, static_cast<UINT>(subresourcesNormal.size()));
+    const UINT64 uploadBufferSizeAO = GetRequiredIntermediateSize(m_textureAO.Get(), 0, static_cast<UINT>(subresourcesAO.size()));
+    const UINT64 uploadBufferSize = uploadBufferSizeDiffuse + uploadBufferSizeNormal + uploadBufferSizeAO;
+
+    const CD3DX12_HEAP_PROPERTIES uploadHeapProps(D3D12_HEAP_TYPE_UPLOAD);
+    const CD3DX12_RESOURCE_DESC uploadBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize);
+    
+    ThrowIfFailed(m_device->CreateCommittedResource(
+        &uploadHeapProps,
+        D3D12_HEAP_FLAG_NONE,
+        &uploadBufferDesc,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(&m_textureUploadHeap)));
+
+    // Reset command list for texture upload
+    ThrowIfFailed(m_commandAllocators[m_frameIndex]->Reset());
+    ThrowIfFailed(m_commandList->Reset(m_commandAllocators[m_frameIndex].Get(), nullptr));
+
+    // Upload Diffuse texture
+    UpdateSubresources(
+        m_commandList.Get(),
+        m_textureDiffuse.Get(),
+        m_textureUploadHeap.Get(),
+        0,
+        0,
+        static_cast<UINT>(subresourcesDiffuse.size()),
+        subresourcesDiffuse.data());
+
+    // Upload Normal texture
+    UpdateSubresources(
+        m_commandList.Get(),
+        m_textureNormal.Get(),
+        m_textureUploadHeap.Get(),
+        uploadBufferSizeDiffuse,
+        0,
+        static_cast<UINT>(subresourcesNormal.size()),
+        subresourcesNormal.data());
+
+    // Upload AO texture
+    UpdateSubresources(
+        m_commandList.Get(),
+        m_textureAO.Get(),
+        m_textureUploadHeap.Get(),
+        uploadBufferSizeDiffuse + uploadBufferSizeNormal,
+        0,
+        static_cast<UINT>(subresourcesAO.size()),
+        subresourcesAO.data());
+
+    // Transition textures to pixel shader resource state
+    D3D12_RESOURCE_BARRIER barriers[3] = {
+        CD3DX12_RESOURCE_BARRIER::Transition(m_textureDiffuse.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE),
+        CD3DX12_RESOURCE_BARRIER::Transition(m_textureNormal.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE),
+        CD3DX12_RESOURCE_BARRIER::Transition(m_textureAO.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
+    };
+    m_commandList->ResourceBarrier(3, barriers);
+
+    ThrowIfFailed(m_commandList->Close());
+    ID3D12CommandList* ppCommandLists[] = { m_commandList.Get() };
+    m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+
+    // Create Shader Resource Views
+    UINT srvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_srvHeap->GetCPUDescriptorHandleForHeapStart());
+
+    // Diffuse SRV
+    D3D12_RESOURCE_DESC diffuseDesc = m_textureDiffuse->GetDesc();
+    char buffer[256];
+    sprintf_s(buffer, "Diffuse: %dx%d, Format: %d, Mips: %d\n", 
+        (int)diffuseDesc.Width, diffuseDesc.Height, diffuseDesc.Format, diffuseDesc.MipLevels);
+    OutputDebugStringA(buffer);
+    
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Format = diffuseDesc.Format;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MipLevels = diffuseDesc.MipLevels;
+    m_device->CreateShaderResourceView(m_textureDiffuse.Get(), &srvDesc, srvHandle);
+    OutputDebugStringA("Diffuse SRV created at slot 0\n");
+
+    // Normal SRV
+    srvHandle.Offset(1, srvDescriptorSize);
+    D3D12_RESOURCE_DESC normalDesc = m_textureNormal->GetDesc();
+    sprintf_s(buffer, "Normal: %dx%d, Format: %d, Mips: %d\n", 
+        (int)normalDesc.Width, normalDesc.Height, normalDesc.Format, normalDesc.MipLevels);
+    OutputDebugStringA(buffer);
+    
+    srvDesc.Format = normalDesc.Format;
+    srvDesc.Texture2D.MipLevels = normalDesc.MipLevels;
+    m_device->CreateShaderResourceView(m_textureNormal.Get(), &srvDesc, srvHandle);
+    OutputDebugStringA("Normal SRV created at slot 1\n");
+
+    // AO SRV
+    srvHandle.Offset(1, srvDescriptorSize);
+    D3D12_RESOURCE_DESC aoDesc = m_textureAO->GetDesc();
+    sprintf_s(buffer, "AO: %dx%d, Format: %d, Mips: %d\n", 
+        (int)aoDesc.Width, aoDesc.Height, aoDesc.Format, aoDesc.MipLevels);
+    OutputDebugStringA(buffer);
+    
+    srvDesc.Format = aoDesc.Format;
+    srvDesc.Texture2D.MipLevels = aoDesc.MipLevels;
+    m_device->CreateShaderResourceView(m_textureAO.Get(), &srvDesc, srvHandle);
+    OutputDebugStringA("AO SRV created at slot 2\n");
+
+    OutputDebugStringA("All textures loaded and SRVs created successfully!\n");
 }
 
 // Update frame-based values.
@@ -337,7 +618,10 @@ void D3D12MeshletRender::OnUpdate()
     XMStoreFloat4x4(&m_constantBufferData.World, XMMatrixTranspose(world));
     XMStoreFloat4x4(&m_constantBufferData.WorldView, XMMatrixTranspose(world * view));
     XMStoreFloat4x4(&m_constantBufferData.WorldViewProj, XMMatrixTranspose(world * view * proj));
-    m_constantBufferData.DrawMeshlets = true;
+    m_constantBufferData.DrawMeshlets = m_drawMeshlets;
+    m_constantBufferData.Time = static_cast<float>(m_timer.GetTotalSeconds());
+    m_constantBufferData.AnimationAmplitude = 5.0f;  // Амплитуда дыхания
+    m_constantBufferData.AnimationFrequency = 1.0f;  // Частота дыхания (1 цикл в секунду)
 
     memcpy(m_cbvDataBegin + sizeof(SceneConstantBuffer) * m_frameIndex, &m_constantBufferData, sizeof(m_constantBufferData));
 }
@@ -370,6 +654,12 @@ void D3D12MeshletRender::OnDestroy()
 void D3D12MeshletRender::OnKeyDown(UINT8 key)
 {
     m_camera.OnKeyDown(key);
+    
+    // Toggle meshlet visualization with Ctrl key
+    if (key == VK_CONTROL)
+    {
+        m_drawMeshlets = !m_drawMeshlets;
+    }
 }
 
 void D3D12MeshletRender::OnKeyUp(UINT8 key)
@@ -406,6 +696,10 @@ void D3D12MeshletRender::PopulateCommandList()
 
     // Set necessary state.
     m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
+    
+    ID3D12DescriptorHeap* ppHeaps[] = { m_srvHeap.Get() };
+    m_commandList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
+    
     m_commandList->RSSetViewports(1, &m_viewport);
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
 
@@ -423,6 +717,7 @@ void D3D12MeshletRender::PopulateCommandList()
     m_commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 
     m_commandList->SetGraphicsRootConstantBufferView(0, m_constantBuffer->GetGPUVirtualAddress() + sizeof(SceneConstantBuffer) * m_frameIndex);
+    m_commandList->SetGraphicsRootDescriptorTable(6, m_srvHeap->GetGPUDescriptorHandleForHeapStart());
 
     for (auto& mesh : m_model)
     {

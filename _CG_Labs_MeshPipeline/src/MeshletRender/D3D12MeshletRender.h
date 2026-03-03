@@ -49,6 +49,9 @@ private:
         XMFLOAT4X4 WorldView;
         XMFLOAT4X4 WorldViewProj;
         uint32_t   DrawMeshlets;
+        float      Time;
+        float      AnimationAmplitude;
+        float      AnimationFrequency;
     };
 
     // Pipeline objects.
@@ -63,8 +66,13 @@ private:
     ComPtr<ID3D12RootSignature> m_rootSignature;
     ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
     ComPtr<ID3D12DescriptorHeap> m_dsvHeap;
+    ComPtr<ID3D12DescriptorHeap> m_srvHeap;
     ComPtr<ID3D12PipelineState> m_pipelineState;
     ComPtr<ID3D12Resource> m_constantBuffer;
+    ComPtr<ID3D12Resource> m_textureDiffuse;
+    ComPtr<ID3D12Resource> m_textureNormal;
+    ComPtr<ID3D12Resource> m_textureAO;
+    ComPtr<ID3D12Resource> m_textureUploadHeap;
     UINT m_rtvDescriptorSize;
     UINT m_dsvDescriptorSize;
 
@@ -75,6 +83,7 @@ private:
     StepTimer m_timer;
     SimpleCamera m_camera;
     Model m_model;
+    bool m_drawMeshlets;
     
     // Synchronization objects.
     UINT m_frameIndex;
@@ -85,6 +94,7 @@ private:
 
     void LoadPipeline();
     void LoadAssets();
+    void LoadTexture();
     void PopulateCommandList();
     void MoveToNextFrame();
     void WaitForGpu();
