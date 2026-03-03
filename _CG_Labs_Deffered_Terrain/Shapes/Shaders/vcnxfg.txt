@@ -1,0 +1,163 @@
+// Lighting.hlsl
+// Lighting pass: fullscreen triangle VS and PS that samples G-Buffer at t10 / t11
+// t10 = Albedo SRV, t11 = Normal SRV (these are placed starting at register t10 in the SRV heap).
+// Pass constants includes ambient and lights (we read Lights array here).
+
+
+#define MaxLights 16
+
+struct Light
+{
+    float3 Strength;
+    float FalloffStart;
+    
+    float3 Direction;
+    float FalloffEnd;
+    
+    float3 Position;
+    float SpotPower;
+
+    int Type;
+    float3 pad;
+};
+
+cbuffer MaterialConstants : register(b1)
+{
+    float4 gDiffuseAlbedo;
+    float3 gFresnelR0;
+    float gRoughness;
+    float4x4 gMatTransform;
+}; 
+
+// ---------- CBs ----------
+cbuffer PassConstants : register(b2)
+{
+    float4x4 gInvViewProj;
+    float3 gEyePosW;
+    float pad0;
+    float4 gAmbientLight;
+
+    Light gLights[16]; // если MaxLights = 16
+};
+
+float CalcAttenuation(float d, float falloffStart, float falloffEnd)
+{
+    return saturate((falloffEnd - d) / (falloffEnd - falloffStart));
+}
+
+float3 SchlickFresnel(float3 r0, float3 normal, float3 lightDir)
+{
+    float cosTheta = saturate(dot(normal, lightDir));
+    return r0 + (1.0f - r0) * pow(1.0f - cosTheta, 5.0f);
+}
+
+float3 BlinnPhongBRDF(float3 lightStrength, float3 lightDir, float3 normal, float3 viewDir, float3 albedo, float3 fresnelR0, float roughness)
+{
+    float3 halfway = normalize(lightDir + viewDir);
+    float ndoth = saturate(dot(normal, halfway));
+    float shininess = (1.0f - roughness) * 256.0f; // Roughness to shininess approx
+    float spec = pow(ndoth, shininess) * (shininess + 8.0f) / 8.0f;
+    
+    float3 fresnel = SchlickFresnel(fresnelR0, halfway, lightDir);
+    float3 ks = fresnel;
+    float3 kd = (1.0f - ks) * albedo / 3.14159f; // Diffuse Lambert
+    
+    return (kd + ks * spec) * lightStrength;
+}
+
+float3 ComputeLight(Light light, float3 posW, float3 normal, float3 viewDir, float3 albedo, float3 fresnelR0, float roughness)
+{
+    if (light.Type == 0)
+    { // Directional
+        float3 lightDir = -normalize(light.Direction);
+        float ndotl = saturate(dot(lightDir, normal));
+        return BlinnPhongBRDF(light.Strength * ndotl, lightDir, normal, viewDir, albedo, fresnelR0, roughness);
+    }
+    else if (light.Type == 1)
+    { // Point
+        float3 lightVec = light.Position - posW;
+        float dist = length(lightVec);
+        if (dist > light.FalloffEnd)
+            return 0.0f;
+        lightVec /= dist;
+        float ndotl = saturate(dot(lightVec, normal));
+        float att = CalcAttenuation(dist, light.FalloffStart, light.FalloffEnd);
+        return BlinnPhongBRDF(light.Strength * ndotl * att, lightVec, normal, viewDir, albedo, fresnelR0, roughness);
+    }
+    else if (light.Type == 2)
+    { // Spot
+        float3 lightVec = light.Position - posW;
+        float dist = length(lightVec);
+        if (dist > light.FalloffEnd)
+            return 0.0f;
+        lightVec /= dist;
+        float ndotl = saturate(dot(lightVec, normal));
+        float att = CalcAttenuation(dist, light.FalloffStart, light.FalloffEnd);
+        float spot = pow(saturate(dot(-lightVec, light.Direction)), light.SpotPower);
+        return BlinnPhongBRDF(light.Strength * ndotl * att * spot, lightVec, normal, viewDir, albedo, fresnelR0, roughness);
+    }
+    return 0.0f;
+}
+
+// ---------- Textures / sampler ----------
+Texture2D gAlbedoTex : register(t2);
+Texture2D gNormalTex : register(t3); 
+Texture2D gDepthTex : register(t4);
+SamplerState gSampler : register(s0);
+
+// ---------- VS for full-screen triangle ----------
+struct VSOutput
+{
+    float4 PosH : SV_POSITION;
+    float2 TexC : TEXCOORD0;
+};
+
+VSOutput VS(uint id : SV_VertexID) // 
+{ 
+    // три вершины большого треугольника
+    float2 verts[3] =
+    {
+        float2(-1.0, -1.0),
+        float2(-1.0, 3.0),
+        float2(3.0, -1.0)
+    };
+    
+    VSOutput vout;
+    
+    vout.PosH = float4(verts[id], 0.0, 1.0);
+    // tex = из [-1..1] в [0..1]
+    vout.TexC = 0.5f * (verts[id] + 1.0f);
+    vout.TexC.y = 1.0f - vout.TexC.y; // Flip texture Y upside-down
+    
+    return vout;
+}
+
+// ---------- PS: do lighting, write to backbuffer ----------
+float4 PS(VSOutput pin) : SV_Target // 
+{
+    float3 albedo = gAlbedoTex.Sample(gSampler, pin.TexC).xyz;
+    float3 normal = gNormalTex.Sample(gSampler, pin.TexC).xyz;
+    float depth = gDepthTex.Sample(gSampler, pin.TexC).x;
+    
+    // Reconstruct world pos
+    float2 screenPos = pin.TexC * 2.0f - 1.0f;
+    screenPos.y = -screenPos.y; // clip space
+    float4 clipPos = float4(screenPos, depth, 1.0f);
+    float4 worldPos = mul(clipPos, gInvViewProj);
+    float3 posW = worldPos.xyz / worldPos.w;
+    
+    float3 viewDir = normalize(gEyePosW - posW);
+    
+    float roughness = gRoughness;
+    float3 fresnelR0 = gFresnelR0;
+    
+    float3 color = albedo * gAmbientLight.xyz;
+    
+    for (int i = 0; i < MaxLights; i++)
+    {
+        color += ComputeLight(gLights[i], posW, normal, viewDir, albedo, fresnelR0, roughness);
+    }
+    
+    return color;
+}
+// AABB - bounding box

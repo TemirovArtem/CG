@@ -1,0 +1,41 @@
+
+──────────────────────────────────────────────────────────────────────────────────────────  GAEA BUILD SWARM  2.2.1.0 ──
+
+                                                      
+          Filename:  │ C:/Gaea Projects/hill.terrain  
+    Build Location:  │ C:\Gaea Builds                 
+        Build Type:  │ Standard                       
+  Build Resolution:  │ 512 × 512                      
+     Build Profile:  │ None / Last Saved Settings     
+             Nodes:  │ 13 to build                    
+                     │ 06 to export                   
+                                                      
+
+──────────────────────────────────────────────────────────────────────────────────────────  GAEA BUILD SWARM  2.2.1.0 ──
+
+                                                      
+          Filename:  │ C:/Gaea Projects/hill.terrain  
+    Build Location:  │ C:\Gaea Builds                 
+        Build Type:  │ Standard                       
+  Build Resolution:  │ 512 × 512                      
+     Build Profile:  │ None / Last Saved Settings     
+             Nodes:  │ 13 to build                    
+                     │ 06 to export                   
+                                                      
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────── Build Report ──
+
+              Build Results                               Statistics                
+                                                                                    
+          Result: │ Success                  MultiFractal │ 0:00:00.168             
+      Resolution: │ 512                          Erosion2 │ 0:00:00.36              
+      Node Count: │ 13                         Weathering │ 0:00:00.526             
+      Start Time: │ 01/22/2026 22:50:59      ColorErosion │ 0:00:00.594             
+        End Time: │ 01/22/2026 22:51:10          Erosion2 │ 0:00:00.152             
+        Duration: │ 00:00:11.3333458             Outcrops │ 0:00:01.556             
+  Non-Build Time: │ 00:00:06.7873458                Scree │ 0:00:01.131             
+                                                          │                         
+                                                  Fastest │ Mesher @ 0:00:00        
+                                                  Slowest │ Outcrops @ 0:00:01.556  
+                                                                                    
+                                            * nodes that took <100ms are excluded.  
