@@ -1,8 +1,9 @@
 // DebugVelocityVisualize.hlsl - Visualize velocity buffer for debugging
 // VS: Fullscreen triangle
-// PS: Visualize velocity as color (red = X, green = Y, magnitude = brightness)
+// PS: Show normal scene with red overlay for moving pixels
 
 Texture2D gVelocityBuffer : register(t7);  // Changed from t0 to t7 to match root signature
+Texture2D gSceneTexture : register(t5);    // Current frame scene texture (from lighting pass)
 SamplerState gSampler : register(s0);
 
 struct VSOutput
@@ -29,62 +30,32 @@ VSOutput VS(uint id : SV_VertexID)
     return vout;
 }
 
-// Visualize velocity as color
+// Visualize velocity as red overlay on normal scene
 float4 PS(VSOutput pin) : SV_Target
 {
+    // Sample velocity
     float2 velocity = gVelocityBuffer.Sample(gSampler, pin.TexC).xy;
     
-    // Raw velocity (before scaling) for magnitude check
-    float rawMagnitude = length(velocity);
+    // Sample scene color
+    float3 sceneColor = gSceneTexture.Sample(gSampler, pin.TexC).rgb;
     
-    // Очень агрессивная визуализация для дебага
-    // Даже очень малые velocity будут видны
-    float scale = 200.0f;  // Очень большой масштаб
-    float2 scaledVelocity = velocity * scale;
+    // Calculate velocity magnitude
+    float velocityMag = length(velocity);
     
-    float magnitude = length(scaledVelocity);
+    // Threshold for "moving" pixels (adjust as needed)
+    float threshold = 0.0001f;
     
-    // Если АБСОЛЮТНО нет движения, показываем черный
-    if (rawMagnitude < 0.00000001f)
+    // If velocity is above threshold, blend with red
+    if (velocityMag > threshold)
     {
-        return float4(0.0f, 0.0f, 0.0f, 1.0f);  // Черный для абсолютного нуля
+        // Scale velocity magnitude for visualization
+        float intensity = saturate(velocityMag * 100.0f);
+        
+        // Blend scene color with red based on velocity magnitude
+        // More velocity = more red
+        float3 redOverlay = float3(1.0f, 0.0f, 0.0f);
+        sceneColor = lerp(sceneColor, redOverlay, intensity * 0.7f);
     }
     
-    // Если очень малое движение, показываем темно-серый
-    if (rawMagnitude < 0.0001f)
-    {
-        return float4(0.2f, 0.2f, 0.2f, 1.0f);  // Темно-серый для очень малых velocity
-    }
-    
-    // Для движущихся объектов используем направленные цвета
-    // Вычисляем угол направления velocity
-    float angle = atan2(velocity.y, velocity.x);  // [-PI, PI]
-    float hue = (angle + 3.14159265f) / (2.0f * 3.14159265f);  // [0, 1]
-    
-    // Преобразуем hue в RGB
-    float3 color;
-    float h6 = hue * 6.0f;
-    float x = 1.0f - abs(fmod(h6, 2.0f) - 1.0f);
-    
-    if (h6 < 1.0f)
-        color = float3(1.0f, x, 0.0f);  // Red to Yellow
-    else if (h6 < 2.0f)
-        color = float3(x, 1.0f, 0.0f);  // Yellow to Green
-    else if (h6 < 3.0f)
-        color = float3(0.0f, 1.0f, x);  // Green to Cyan
-    else if (h6 < 4.0f)
-        color = float3(0.0f, x, 1.0f);  // Cyan to Blue
-    else if (h6 < 5.0f)
-        color = float3(x, 0.0f, 1.0f);  // Blue to Magenta
-    else
-        color = float3(1.0f, 0.0f, x);  // Magenta to Red
-    
-    // Модулируем яркость по величине velocity (очень агрессивно)
-    float brightness = saturate(rawMagnitude * 500.0f);  // Очень сильное усиление
-    color *= brightness;
-    
-    // Добавляем базовую яркость для видимости направления
-    color = saturate(color + 0.3f);
-    
-    return float4(color, 1.0f);
+    return float4(sceneColor, 1.0f);
 }

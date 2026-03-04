@@ -1568,6 +1568,13 @@ void ShapesApp::DrawDebugOverlays(ID3D12GraphicsCommandList* cmdList)
         ID3D12DescriptorHeap* heaps[] = { mSrvHeap.Get() };
         cmdList->SetDescriptorHeaps(_countof(heaps), heaps);
 
+        // Set scene texture (t5) - use TAA current RT or back buffer
+        CD3DX12_GPU_DESCRIPTOR_HANDLE sceneHandle(
+            mSrvHeap->GetGPUDescriptorHandleForHeapStart(),
+            mTAACurrentSrvOffset,  // Scene texture from lighting pass
+            mCbvSrvDescriptorSize);
+        cmdList->SetGraphicsRootDescriptorTable(5, sceneHandle);
+
         // Set velocity buffer as texture (t7)
         // Velocity buffer SRV находится в mGBuffer.SrvOffset + 3 (Albedo, Normal, Depth, Velocity)
         CD3DX12_GPU_DESCRIPTOR_HANDLE velocityHandle(

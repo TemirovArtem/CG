@@ -16,16 +16,16 @@
   MathHelper.cpp
   FrameResource.cpp
   ShapesApp.cpp
-C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(2037,23): warning C4018: <: несоответствие типов со знаком и без знака
-C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3171,19): warning C4267: инициализация: преобразование из "size_t" в "UINT"; возможна потеря данных
-C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3614,23): warning C4018: <: несоответствие типов со знаком и без знака
-C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3844,54): warning C4267: инициализация: преобразование из "size_t" в "UINT"; возможна потеря данных
-C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3844,33): warning C4267: инициализация: преобразование из "size_t" в "const UINT"; возможна потеря данных
-C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3957,69): warning C4244: аргумент: преобразование "wchar_t" в "const _Elem", возможна потеря данных
-C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3957,69): warning C4244:         with
-C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3957,69): warning C4244:         [
-C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3957,69): warning C4244:             _Elem=char
-C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3957,69): warning C4244:         ]
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(2044,23): warning C4018: <: несоответствие типов со знаком и без знака
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3178,19): warning C4267: инициализация: преобразование из "size_t" в "UINT"; возможна потеря данных
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3621,23): warning C4018: <: несоответствие типов со знаком и без знака
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3851,54): warning C4267: инициализация: преобразование из "size_t" в "UINT"; возможна потеря данных
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3851,33): warning C4267: инициализация: преобразование из "size_t" в "const UINT"; возможна потеря данных
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3964,69): warning C4244: аргумент: преобразование "wchar_t" в "const _Elem", возможна потеря данных
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3964,69): warning C4244:         with
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3964,69): warning C4244:         [
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3964,69): warning C4244:             _Elem=char
+C:\1_DX12\repo\CG\_CG_Labs_Deffered_TAA\Shapes\ShapesApp.cpp(3964,69): warning C4244:         ]
 C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\xstring(2749,53): warning C4244: аргумент: преобразование "wchar_t" в "const _Elem", возможна потеря данных
 C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\xstring(2749,53): warning C4244:         with
 C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\include\xstring(2749,53): warning C4244:         [
