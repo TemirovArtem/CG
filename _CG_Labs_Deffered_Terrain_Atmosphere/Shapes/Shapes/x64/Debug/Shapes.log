@@ -1,0 +1,12 @@
+﻿  ShapesApp.cpp
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere\Shapes\ShapesApp.cpp(1674,27): warning C4018: <: несоответствие типов со знаком и без знака
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere\Shapes\ShapesApp.cpp(2734,19): warning C4267: инициализация: преобразование из "size_t" в "UINT"; возможна потеря данных
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere\Shapes\ShapesApp.cpp(3124,23): warning C4018: <: несоответствие типов со знаком и без знака
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere\Shapes\ShapesApp.cpp(3323,54): warning C4267: инициализация: преобразование из "size_t" в "UINT"; возможна потеря данных
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere\Shapes\ShapesApp.cpp(3323,33): warning C4267: инициализация: преобразование из "size_t" в "const UINT"; возможна потеря данных
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere\Shapes\ShapesApp.cpp(3416,69): warning C4244: аргумент: преобразование "wchar_t" в "const _Elem", возможна потеря данных
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere\Shapes\ShapesApp.cpp(3416,69): warning C4244:         with
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere\Shapes\ShapesApp.cpp(3416,69): warning C4244:         [
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere\Shapes\ShapesApp.cpp(3416,69): warning C4244:             _Elem=char
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere\Shapes\ShapesApp.cpp(3416,69): warning C4244:         ]
+  Shapes.vcxproj -> C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere\Shapes\x64\Debug\Shapes.exe

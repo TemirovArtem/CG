@@ -1,0 +1,62 @@
+cbuffer ObjectConstants : register(b0)
+{
+    float4x4 gWorld;
+    float4x4 gWorldInvTranspose;
+    float4x4 gTexTransform;
+};
+
+cbuffer MaterialConstants : register(b1)
+{
+    float4 gDiffuseAlbedo;
+    float3 gFresnelR0;
+    float gRoughness;
+    float4x4 gMatTransform;
+};
+
+cbuffer PassConstants : register(b2)
+{
+    float4x4 gView;
+    float4x4 gInvView;
+    float4x4 gProj;
+    float4x4 gInvProj;
+    float4x4 gViewProj;
+    float4x4 gInvViewProj;
+
+    float3 gEyePosW;
+    float  cbPerObjectPad1;
+
+    float2 gRenderTargetSize;
+    float2 gInvRenderTargetSize;
+
+    float  gNearZ;
+    float  gFarZ;
+    float  gTotalTime;
+    float  gDeltaTime;
+
+    float4 gAmbientLight;
+};
+
+struct VSInput
+{
+    float3 PosL : POSITION;
+};
+
+struct VSOutput
+{
+    float4 PosH : SV_POSITION;
+    float4 Color : COLOR;
+};
+
+VSOutput VS(VSInput vin)
+{
+    VSOutput vout;
+    float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
+    vout.PosH = mul(posW, gViewProj);
+    vout.Color = float4(0.7f, 0.7f, 0.7f, 1.0f);
+    return vout;
+}
+
+float4 PS(VSOutput pin) : SV_Target
+{
+    return pin.Color;
+}
