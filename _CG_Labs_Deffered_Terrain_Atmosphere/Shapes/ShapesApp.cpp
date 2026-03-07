@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <functional>
 
+#include <windows.h>
 #include <iostream>
 #include <ctime>
 #include <random>
@@ -980,13 +981,37 @@ void ShapesApp::Update(const GameTimer& gt)
         }
     }
 
+    /// Задаем солнцу движение относительно времени в системе
+
+    auto& params = mAtmosphere->GetParameters();
+
+    SYSTEMTIME st;
+    GetLocalTime(&st); // локальное время в винде пользователя
+    int currentSeconds = st.wHour * 3600 + st.wMinute * 60 + st.wSecond;
+    int totalDaySeconds = 24 * 3600;
+    float timeOfDay = static_cast<float>(currentSeconds) / totalDaySeconds;
+    std::printf("Seconds: %02d\n", currentSeconds);
+    std::printf("Seconds in per day: %02d\n", totalDaySeconds);
+    std::printf("Time of day: %02f\n", timeOfDay);
+
+    params.SunDirection.y = sin(timeOfDay);
+    params.SunDirection.z = cos(timeOfDay);
+
+    XMVECTOR dir = XMVector3Normalize(XMLoadFloat3(&params.SunDirection));
+    XMStoreFloat3(&params.SunDirection, dir);
+
+    ///
+
     // ========================================== ATMOSPHERE CONTROLS ==========================================
     if (mAtmosphere && ImGui::CollapsingHeader("Atmosphere Settings"))
     {
         ImGui::Checkbox("Enable Atmosphere", &mEnableAtmosphere);
         ImGui::Separator();
         
-        auto& params = mAtmosphere->GetParameters();
+
+        
+
+         
         
         // Пресеты
         ImGui::Text("Presets:");
