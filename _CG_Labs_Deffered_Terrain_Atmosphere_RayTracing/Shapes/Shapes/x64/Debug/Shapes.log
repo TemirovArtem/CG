@@ -1,0 +1,25 @@
+﻿  ShapesApp.cpp
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(560,2): warning C4996: 'freopen': This function or variable may be unsafe. Consider using freopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(561,2): warning C4996: 'freopen': This function or variable may be unsafe. Consider using freopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(562,2): warning C4996: 'freopen': This function or variable may be unsafe. Consider using freopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(911,49): warning C4244: аргумент: преобразование "double" в "float", возможна потеря данных
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(912,46): warning C4244: аргумент: преобразование "double" в "float", возможна потеря данных
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(962,21): warning C4305: аргумент: усечение из "double" в "float"
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(966,22): warning C4305: аргумент: усечение из "double" в "float"
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(1833,35): warning C4267: =: преобразование из "size_t" в "int"; возможна потеря данных
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(1852,35): warning C4267: =: преобразование из "size_t" в "int"; возможна потеря данных
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(1874,33): warning C4267: =: преобразование из "size_t" в "int"; возможна потеря данных
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(1891,34): warning C4267: =: преобразование из "size_t" в "int"; возможна потеря данных
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(1907,37): warning C4267: =: преобразование из "size_t" в "int"; возможна потеря данных
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(1910,21): warning C4305: =: усечение из "double" в "float"
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(2020,55): warning C4267: =: преобразование из "size_t" в "UINT"; возможна потеря данных
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(2423,20): warning C4018: <: несоответствие типов со знаком и без знака
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(2492,20): warning C4018: <: несоответствие типов со знаком и без знака
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(2513,9): warning C4267: инициализация: преобразование из "size_t" в "UINT"; возможна потеря данных
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(2518,36): warning C4267: =: преобразование из "size_t" в "UINT"; возможна потеря данных
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(2519,38): warning C4267: +=: преобразование из "size_t" в "UINT"; возможна потеря данных
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(2522,36): warning C4267: =: преобразование из "size_t" в "UINT"; возможна потеря данных
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(3004,20): warning C4018: <: несоответствие типов со знаком и без знака
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(3022,38): warning C4267: =: преобразование из "size_t" в "UINT"; возможна потеря данных
+C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\ShapesApp.cpp(3044,85): warning C4305: аргумент: усечение из "double" в "float"
+  Shapes.vcxproj -> C:\VS_Code_Projects\src\_CG_Labs_Deffered_Terrain_Atmosphere_RayTracing\Shapes\x64\Debug\Shapes.exe
