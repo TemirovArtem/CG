@@ -1,4 +1,4 @@
-//***************************************************************************************
+﻿//***************************************************************************************
 // RayTracingApp.cpp - Приложение с трассировкой лучей
 // Адаптировано для учебного проекта
 //***************************************************************************************
@@ -16,6 +16,8 @@
 #include <cmath>
 #include <cctype>
 #include <dxcapi.h>
+#include <unordered_set>
+#include <unordered_map>
 
 
 #include "Common/imgui_impl_dx12.h"
@@ -159,6 +161,8 @@ struct RenderItem
 	int BaseVertexLocation = 0;
 	std::string Name;
 
+	// Флаг для объектов с прозрачными текстурами
+	bool RequiresAlphaTest = false;
 
 };
 
@@ -251,11 +255,15 @@ private:
 	void BuildTerrainGeometry();
 	void DrawTerrain(ID3D12GraphicsCommandList* cmdList);
 	void BuildDxrShadowRootSignature();
-	void BuildDxrShadowPSO();
+	void BuildDxrShadowPSO(); // Старый метод (compute PSO)
+	void BuildDxrShadowRTPSO(); // Новый метод (ray tracing PSO)
+	void BuildDxrShadowShaderTable(); // Создание shader table
+	void BuildDxrUnifiedGeometryBuffers(); // Unified буферы для всех объектов
 	void BuildDxrAccelerationStructures();
 	void CreateDxrShadowMaskResources();
 	void CreateDxrShadowDescriptors();
-	void DispatchDxrShadowMask(ID3D12GraphicsCommandList* cmdList);
+	void DispatchDxrShadowMask(ID3D12GraphicsCommandList* cmdList); // Старый метод
+	void DispatchDxrShadowRays(ID3D12GraphicsCommandList* cmdList); // Новый метод
 
 private:
 	std::unordered_map<std::string, unsigned int>ObjectsMeshCount;
@@ -353,7 +361,7 @@ private:
 	XMFLOAT4X4 mBaseProj = MathHelper::Identity4x4(); // projection без джиттера
 	UINT mJitterIndex = 0;
 	static const UINT kJitterCount = 8;
-	XMFLOAT2 mJitter = XMFLOAT2(0.0f, 0.0f); 
+	XMFLOAT2 mJitter = XMFLOAT2(0.0f, 0.0f);
 
 	ComPtr<ID3D12Resource> mTaaHistory[2];
 	CD3DX12_CPU_DESCRIPTOR_HANDLE mTaaHistoryRtv[2];
@@ -401,8 +409,34 @@ private:
 	int mDxrShadowLightCBIndex = 0; // which LightCBIndex uses DXR mask (directional)
 
 	ComPtr<ID3D12RootSignature> mDxrShadowRootSignature = nullptr;
-	ComPtr<ID3D12PipelineState> mDxrShadowPSO = nullptr;
+	ComPtr<ID3D12PipelineState> mDxrShadowPSO = nullptr; // Старый compute PSO (не используется)
 	ComPtr<ID3DBlob> mDxrShadowCS = nullptr;
+
+	// TraceRay Pipeline (Вариант B)
+	ComPtr<ID3D12StateObject> mDxrShadowRTPSO = nullptr; // Ray Tracing PSO
+	ComPtr<ID3D12StateObjectProperties> mDxrShadowRTPSOProps = nullptr;
+	ComPtr<ID3D12Resource> mDxrShadowShaderTable = nullptr;
+	D3D12_GPU_VIRTUAL_ADDRESS mDxrRayGenShaderTableStart = 0;
+	D3D12_GPU_VIRTUAL_ADDRESS mDxrMissShaderTableStart = 0;
+	D3D12_GPU_VIRTUAL_ADDRESS mDxrHitGroupShaderTableStart = 0;
+	UINT mDxrShaderRecordSize = 0;
+
+	// Unified буферы геометрии
+	ComPtr<ID3D12Resource> mDxrUnifiedVertexBuffer = nullptr;
+	ComPtr<ID3D12Resource> mDxrUnifiedIndexBuffer = nullptr;
+	ComPtr<ID3D12Resource> mDxrUnifiedVertexBufferUpload = nullptr; // Upload buffer (keep alive)
+	ComPtr<ID3D12Resource> mDxrUnifiedIndexBufferUpload = nullptr;  // Upload buffer (keep alive)
+	int mDxrUnifiedVertexBufferSrvIndex = -1;
+	int mDxrUnifiedIndexBufferSrvIndex = -1;
+
+	struct DxrGeometryInfo
+	{
+		UINT VertexOffset;
+		UINT IndexOffset;
+		UINT VertexCount;
+		UINT IndexCount;
+	};
+	std::vector<DxrGeometryInfo> mDxrGeometryInfos; // Per-BLAS geometry info
 
 	ComPtr<ID3D12Resource> mDxrShadowMask = nullptr; // R16_FLOAT UAV/SRV
 	D3D12_RESOURCE_STATES mDxrShadowMaskState = D3D12_RESOURCE_STATE_COMMON;
@@ -590,9 +624,12 @@ bool RayTracingApp::Initialize()
 	BuildPSOs();
 	BuildRenderItems();
 	BuildDxrShadowRootSignature();
-	BuildDxrShadowPSO();
+	//BuildDxrShadowPSO(); // Старый compute PSO - закомментирован
+	BuildDxrShadowRTPSO(); // Новый ray tracing PSO
 	CreateDxrShadowMaskResources();
 	BuildDxrAccelerationStructures();
+	BuildDxrUnifiedGeometryBuffers(); // Создаем unified buffers после BLAS
+	BuildDxrShadowShaderTable(); // Создаем shader table после geometry buffers
 	CreateDxrShadowDescriptors();
 	BuildTerrainGeometry();
 	mTerrain = std::make_unique<Terrain>();
@@ -624,7 +661,7 @@ bool RayTracingApp::Initialize()
 	init_info.Device = md3dDevice.Get();
 	init_info.CommandQueue = mCommandQueue.Get();
 	init_info.NumFramesInFlight = gNumFrameResources;
-	init_info.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM; 
+	init_info.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 	init_info.DSVFormat = DXGI_FORMAT_UNKNOWN;
 	init_info.SrvDescriptorHeap = mSrvDescriptorHeap.Get();
 	init_info.LegacySingleSrvCpuDescriptor = mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
@@ -708,9 +745,9 @@ void RayTracingApp::OnResize()
 	XMMATRIX P = XMMatrixPerspectiveFovLH(0.4f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
 
 	XMStoreFloat4x4(&mBaseProj, P);
-	XMStoreFloat4x4(&mProj, P); 
+	XMStoreFloat4x4(&mProj, P);
 
-	mJitterIndex = 0; 
+	mJitterIndex = 0;
 }
 
 void RayTracingApp::Update(const GameTimer& gt)
@@ -729,38 +766,38 @@ void RayTracingApp::Update(const GameTimer& gt)
 		WaitForSingleObject(eventHandle, INFINITE);
 		CloseHandle(eventHandle);
 	}
-	
+
 	UpdateCamera(gt);
-	
+
 	// Настройка ImGui для отладочного интерфейса
 	ImGui_ImplDX12_NewFrame();
 	ImGui_ImplWin32_NewFrame();
 	ImGui::NewFrame();
-	
+
 	// Обновляем объекты сцены (без ImGui)
 	Material* movingRedMat = nullptr;
 	if (auto it = mMaterials.find("MovingRed"); it != mMaterials.end())
 	{
 		movingRedMat = it->second.get();
 	}
-	
+
 	constexpr float kWorldDiffEps = 1e-4f;
 	auto worldChanged = [&](const XMFLOAT4X4& a, const XMFLOAT4X4& b) -> bool
-	{
-		const float* pa = reinterpret_cast<const float*>(&a);
-		const float* pb = reinterpret_cast<const float*>(&b);
-		for (int i = 0; i < 16; ++i)
 		{
-			if (std::fabs(pa[i] - pb[i]) > kWorldDiffEps)
-				return true;
-		}
-		return false;
-	};
+			const float* pa = reinterpret_cast<const float*>(&a);
+			const float* pb = reinterpret_cast<const float*>(&b);
+			for (int i = 0; i < 16; ++i)
+			{
+				if (std::fabs(pa[i] - pb[i]) > kWorldDiffEps)
+					return true;
+			}
+			return false;
+		};
 
 	for (auto& rItem : mAllRitems)
 	{
 		rItem->PrevWorld = rItem->World;
-		
+
 		// Круговое движение головы (если включено)
 		if (rItem->Name == "head" && enableMovement)
 		{
@@ -791,12 +828,12 @@ void RayTracingApp::Update(const GameTimer& gt)
 			rItem->Mat = rItem->BaseMat;
 		}
 	}
-	
+
 	AnimateMaterials(gt);
 	UpdateObjectCBs(gt);
 	UpdateMaterialCBs(gt);
 	UpdateLightCBs(gt);
-	
+
 	// Обновление постобработки
 	mChromaticAberrationCB->CopyData(0, gChromaticAberrationOffset);
 
@@ -818,7 +855,7 @@ void RayTracingApp::Update(const GameTimer& gt)
 	mTaaCB->CopyData(0, c);
 
 	UpdateMainPassCB(gt);
-	
+
 	if (mTerrain)
 	{
 		mTerrain->SetHeightScale(mTerrainHeightScale);
@@ -887,7 +924,7 @@ void RayTracingApp::RotateSpotlightTowardCursor(int x, int y)
 	// 2. NDC → View Space
 	XMVECTOR rayClip = XMVectorSet(px, py, 1.0f, 1.0f); // z = 1
 	XMVECTOR rayView = XMVector3TransformCoord(rayClip, invProj);
-	rayView = XMVectorSetW(rayView, 0.0f); 
+	rayView = XMVectorSetW(rayView, 0.0f);
 
 	// 3. View Space → World Space
 	XMVECTOR rayDirWorld = XMVector3TransformNormal(rayView, invView);
@@ -1100,7 +1137,7 @@ void RayTracingApp::UpdateLightCBs(const GameTimer& gt)
 	{
 		LightConstants lConst;
 		PassShadowConstants shConst;
-		
+
 		if (l.type == 0) // Ambient Light
 		{
 			ImGui::PushID(++imguiID);
@@ -1117,31 +1154,31 @@ void RayTracingApp::UpdateLightCBs(const GameTimer& gt)
 		else if (l.type == 2) // Directional Light
 		{
 			ImGui::PushID(++imguiID);
-			
+
 			// Создаем collapsing header для каждого directional light
 			std::string headerName = "Directional Light " + std::to_string(lId);
 			if (ImGui::CollapsingHeader(headerName.c_str()))
 			{
 				ImGui::Indent();
-				
+
 				ImGui::SliderFloat3("Direction", (float*)&l.Direction, -1, 1);
 				ImGui::ColorEdit3("Color", (float*)&l.Color);
 				ImGui::DragFloat("Strength", &l.Strength, 0.1f, 0, 100);
-				
+
 				bool castsShadows = (l.CastsShadows != 0);
 				if (ImGui::Checkbox("Cast Shadows", &castsShadows))
 					l.CastsShadows = castsShadows ? 1 : 0;
-				
+
 				bool enablePCF = (l.enablePCF != 0);
 				if (ImGui::Checkbox("Enable PCF", &enablePCF))
 					l.enablePCF = enablePCF ? 1 : 0;
-				
+
 				ImGui::DragInt("PCF Level", &l.pcf_level, 1, 0, 100);
 				ImGui::DragFloat("Shadow Softness (texels)", &l.ShadowSoftness, 0.5f, 0.0f, 32.0f, "%.1f");
-				
+
 				ImGui::Unindent();
 			}
-			
+
 			ImGui::PopID();
 		}
 		else if (l.type == 3) // Spot Light (обновляем без ImGui)
@@ -1149,18 +1186,18 @@ void RayTracingApp::UpdateLightCBs(const GameTimer& gt)
 			XMStoreFloat4x4(&l.gWorld, XMMatrixTranspose(XMMatrixScaling(l.FalloffEnd * 4 / 3, l.FalloffEnd, l.FalloffEnd * 4 / 3) * XMMatrixTranslation(0, -l.FalloffEnd / 2, 0) *
 				XMMatrixRotationRollPitchYaw(XMConvertToRadians(l.Rotation.x), XMConvertToRadians(l.Rotation.y), XMConvertToRadians(l.Rotation.z)) *
 				XMMatrixTranslation(l.Position.x, l.Position.y, l.Position.z)));
-			
+
 			XMFLOAT3 d(0, -1, 0);
 			XMVECTOR v = XMLoadFloat3(&d);
 			v = XMVector3TransformNormal(v, XMMatrixRotationRollPitchYaw(XMConvertToRadians(l.Rotation.x), XMConvertToRadians(l.Rotation.y), XMConvertToRadians(l.Rotation.z)));
 			XMStoreFloat3(&l.Direction, v);
-			
+
 			d = XMFLOAT3(-1, 0, 0);
 			v = XMLoadFloat3(&d);
 			v = XMVector3TransformNormal(v, XMMatrixRotationRollPitchYaw(XMConvertToRadians(l.Rotation.x), XMConvertToRadians(l.Rotation.y), XMConvertToRadians(l.Rotation.z)));
 			l.LightUp = v;
 		}
-		
+
 		// Вычисление матриц для теней
 		if ((l.type == 2 || l.type == 3) && l.CastsShadows)
 		{
@@ -1197,28 +1234,28 @@ void RayTracingApp::UpdateLightCBs(const GameTimer& gt)
 	ImGui::Separator();
 	ImGui::Text("\nDXR Shadows Settings");
 	ImGui::Separator();
-	
+
 	ImGui::Checkbox("Enable DXR (RayQuery) Shadows", &mEnableDxrShadows);
-	
+
 	int maxLightIdx = (int)mLights.size() - 1;
 	if (maxLightIdx < 0) maxLightIdx = 0;
 	ImGui::DragInt("DXR Light Index", &mDxrShadowLightCBIndex, 1.0f, 0, maxLightIdx);
-	
+
 	const char* items[] = { "1x (full)", "2x (half)", "4x (quarter)" };
 	int cur = (mDxrShadowDownscale == 1) ? 0 : (mDxrShadowDownscale == 2) ? 1 : 2;
 	if (ImGui::Combo("Mask Downscale", &cur, items, IM_ARRAYSIZE(items)))
 		mDxrShadowDownscale = (cur == 0) ? 1 : (cur == 1) ? 2 : 4;
-	
+
 	ImGui::SliderInt("Samples per Pixel", (int*)&mDxrShadowSamples, 1, 16);
 	ImGui::SliderFloat("Cone Angle (deg)", &mDxrConeAngleDeg, 0.0f, 5.0f, "%.2f");
 	ImGui::DragFloat("Max Distance", &mDxrMaxDistance, 10.0f, 1.0f, 20000.0f, "%.0f");
 	ImGui::DragFloat("Normal Bias", &mDxrNormalBias, 0.001f, 0.0f, 0.2f, "%.4f");
-	
+
 	ImGui::Text("BLAS: %zu  TLAS instances: %zu", mDxrBlas.size(), mDxrInstances.size());
-	ImGui::Text("Mask: %s  TLAS: %s  PSO: %s",
+	ImGui::Text("Mask: %s  TLAS: %s  RTPSO: %s",
 		(mDxrShadowMask ? "OK" : "null"),
 		(mDxrTlas ? "OK" : "null"),
-		(mDxrShadowPSO ? "OK" : "null"));
+		(mDxrShadowRTPSO ? "OK" : "null")); // Изменено на RTPSO
 
 	ImGui::End();
 
@@ -1243,7 +1280,7 @@ void RayTracingApp::UpdateMaterialCBs(const GameTimer& gt)
 		// Проверяем что материал существует
 		Material* mat = e.second.get();
 		if (mat == nullptr) continue;
-		
+
 		// Обновляем константный буфер только если данные изменились
 		if (mat->NumFramesDirty > 0)
 		{
@@ -1473,17 +1510,21 @@ void RayTracingApp::LoadAllTextures()
 	// Основные текстуры для головы
 	tryLoad("texture");
 	tryLoad("texture_nm");
-	
+
 	// Текстуры для bricks
 	tryLoad("bricks");
 	tryLoad("bricks_nmap");
 	tryLoad("bricks2");
 	tryLoad("bricks2_nmap");
-	
+
 	// Служебные текстуры
 	tryLoad("white1x1");
 	tryLoad("default_nmap");
-	
+
+	// Текстура с прозрачностью для теней
+	tryLoad("WireFence");
+	tryLoad("pngwing"); // Используем существующую текстуру с прозрачностью
+
 	// MEGA COSTYL - загружаем из подпапки textures/
 	for (const auto& entry : std::filesystem::directory_iterator("Textures/textures"))
 	{
@@ -1517,7 +1558,7 @@ void RayTracingApp::LoadTerrainTextures()
 	auto tryLoad = [&](const std::string& name) {
 		if (mTextures.find(name) == mTextures.end())
 			LoadTexture(name);
-	};
+		};
 	tryLoad("001/Height_Out");
 	tryLoad("002/Height/Height_Out_y0_x0");
 	tryLoad("002/Height/Height_Out_y0_x1");
@@ -1756,26 +1797,43 @@ void RayTracingApp::BuildPostProcessRootSignature()
 
 void RayTracingApp::BuildDxrShadowRootSignature()
 {
-	// DXR 1.1 inline ray tracing compute root signature:
-	// t0 = TLAS, t1 = Position, t2 = Normal, u0 = ShadowMask, b0 = constants
-	CD3DX12_DESCRIPTOR_RANGE tlasRange;
-	tlasRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
-	CD3DX12_DESCRIPTOR_RANGE posRange;
-	posRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
-	CD3DX12_DESCRIPTOR_RANGE nrmRange;
-	nrmRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2);
-	CD3DX12_DESCRIPTOR_RANGE outRange;
-	outRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0);
+	// Root signature для DXR теней с поддержкой текстур
+	// t0,space0 = TLAS
+	// t1,space0 = Position
+	// t2,space0 = Normal
+	// t0,space1 = Texture Array (unbounded)
+	// t0,space2 = Unified Vertex Buffer (StructuredBuffer<Vertex>)
+	// t0,space3 = Unified Index Buffer (ByteAddressBuffer)
+	// u0,space0 = ShadowMask
+	// b0,space0 = constants
+	// s0 = sampler
 
-	CD3DX12_ROOT_PARAMETER params[5];
-	params[0].InitAsDescriptorTable(1, &tlasRange);
-	params[1].InitAsDescriptorTable(1, &posRange);
-	params[2].InitAsDescriptorTable(1, &nrmRange);
-	params[3].InitAsDescriptorTable(1, &outRange);
-	params[4].InitAsConstantBufferView(0);
+	CD3DX12_DESCRIPTOR_RANGE ranges[6];
+	ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0); // TLAS
+	ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 0); // Position
+	ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 0); // Normal
+	ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, UINT_MAX, 0, 1,
+		D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Textures (unbounded, space1)
+	ranges[4].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 2); // Unified Vertex Buffer (space2)
+	ranges[5].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 3); // Unified Index Buffer (space3)
+
+	CD3DX12_DESCRIPTOR_RANGE uavRange;
+	uavRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0);
+
+	CD3DX12_ROOT_PARAMETER params[8];
+	params[0].InitAsDescriptorTable(1, &ranges[0]); // TLAS
+	params[1].InitAsDescriptorTable(1, &ranges[1]); // Position
+	params[2].InitAsDescriptorTable(1, &ranges[2]); // Normal
+	params[3].InitAsDescriptorTable(1, &ranges[3]); // Textures
+	params[4].InitAsDescriptorTable(1, &ranges[4]); // Vertex Buffer
+	params[5].InitAsDescriptorTable(1, &ranges[5]); // Index Buffer
+	params[6].InitAsDescriptorTable(1, &uavRange);  // Output
+	params[7].InitAsConstantBufferView(0);          // Constants
+
+	CD3DX12_STATIC_SAMPLER_DESC sampler(0, D3D12_FILTER_MIN_MAG_MIP_LINEAR);
 
 	CD3DX12_ROOT_SIGNATURE_DESC rsDesc;
-	rsDesc.Init(_countof(params), params, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_NONE);
+	rsDesc.Init(_countof(params), params, 1, &sampler, D3D12_ROOT_SIGNATURE_FLAG_NONE);
 
 	ComPtr<ID3DBlob> serialized = nullptr;
 	ComPtr<ID3DBlob> errors = nullptr;
@@ -1827,6 +1885,166 @@ void RayTracingApp::BuildDxrShadowPSO()
 		mDxrShadowPSO = nullptr;
 	}
 }
+
+void RayTracingApp::BuildDxrShadowRTPSO()
+{
+	// Check DXR support
+	D3D12_FEATURE_DATA_D3D12_OPTIONS5 opts5 = {};
+	if (FAILED(md3dDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &opts5, sizeof(opts5))) ||
+		opts5.RaytracingTier < D3D12_RAYTRACING_TIER_1_0)
+	{
+		mEnableDxrShadows = false;
+		std::cout << "[DXR] RaytracingTier 1.0+ not supported\n";
+		return;
+	}
+
+	try
+	{
+		std::cout << "[DXR] Compiling DxrShadowMaskWithAlpha.hlsl as lib_6_5...\n";
+
+		// 1. Компилируем шейдер как library (lib_6_5)
+		// Для library не нужен entry point, но DXC все равно требует параметр -E
+		// Передаем пустую строку или "main"
+		ComPtr<ID3DBlob> rtLib = CompileShaderDXC(
+			L"Shaders\\DxrShadowMaskWithAlpha.hlsl",
+			L"main", // Dummy entry point для library
+			L"lib_6_5");
+
+		if (!rtLib)
+		{
+			std::cout << "[DXR] Failed to compile shader library\n";
+			mEnableDxrShadows = false;
+			return;
+		}
+
+		std::cout << "[DXR] Shader compiled successfully, size: " << rtLib->GetBufferSize() << " bytes\n";
+
+		// 2. Создаем subobjects для RTPSO
+		std::vector<D3D12_STATE_SUBOBJECT> subobjects;
+
+		// 2.1 DXIL Library
+		D3D12_DXIL_LIBRARY_DESC libDesc = {};
+		libDesc.DXILLibrary.pShaderBytecode = rtLib->GetBufferPointer();
+		libDesc.DXILLibrary.BytecodeLength = rtLib->GetBufferSize();
+		// Экспортируем все шейдеры из библиотеки
+		libDesc.NumExports = 0;
+		libDesc.pExports = nullptr;
+
+		D3D12_STATE_SUBOBJECT libSubobj = {};
+		libSubobj.Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
+		libSubobj.pDesc = &libDesc;
+		subobjects.push_back(libSubobj);
+
+		// 2.2 Hit Group
+		D3D12_HIT_GROUP_DESC hitGroup = {};
+		hitGroup.HitGroupExport = L"ShadowHitGroup";
+		hitGroup.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+		hitGroup.AnyHitShaderImport = L"ShadowAnyHit";
+		hitGroup.ClosestHitShaderImport = L"ShadowClosestHit";
+		hitGroup.IntersectionShaderImport = nullptr;
+
+		D3D12_STATE_SUBOBJECT hitGroupSubobj = {};
+		hitGroupSubobj.Type = D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP;
+		hitGroupSubobj.pDesc = &hitGroup;
+		subobjects.push_back(hitGroupSubobj);
+
+		// 2.3 Shader Config (payload and attribute sizes)
+		D3D12_RAYTRACING_SHADER_CONFIG shaderConfig = {};
+		shaderConfig.MaxPayloadSizeInBytes = sizeof(float) * 4; // ShadowPayload
+		shaderConfig.MaxAttributeSizeInBytes = sizeof(float) * 2; // barycentrics
+
+		D3D12_STATE_SUBOBJECT shaderConfigSubobj = {};
+		shaderConfigSubobj.Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG;
+		shaderConfigSubobj.pDesc = &shaderConfig;
+		subobjects.push_back(shaderConfigSubobj);
+
+		// 2.4 Pipeline Config (max recursion depth)
+		D3D12_RAYTRACING_PIPELINE_CONFIG pipelineConfig = {};
+		pipelineConfig.MaxTraceRecursionDepth = 1; // Shadow rays only, no recursion
+
+		D3D12_STATE_SUBOBJECT pipelineConfigSubobj = {};
+		pipelineConfigSubobj.Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG;
+		pipelineConfigSubobj.pDesc = &pipelineConfig;
+		subobjects.push_back(pipelineConfigSubobj);
+
+		// 2.5 Global Root Signature
+		D3D12_STATE_SUBOBJECT globalRootSigSubobj = {};
+		globalRootSigSubobj.Type = D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE;
+		ID3D12RootSignature* pRootSig = mDxrShadowRootSignature.Get();
+		globalRootSigSubobj.pDesc = &pRootSig;
+		subobjects.push_back(globalRootSigSubobj);
+
+		// 2.6 Local Root Signature для Hit Group (передача per-instance данных)
+		// Local root signature: 4 x 32-bit constants (texture index + geometry offsets)
+		CD3DX12_ROOT_PARAMETER localParams[1];
+		localParams[0].InitAsConstants(4, 0, 1); // 4 DWORD constants в b0,space1
+
+		CD3DX12_ROOT_SIGNATURE_DESC localRootSigDesc;
+		localRootSigDesc.Init(_countof(localParams), localParams, 0, nullptr,
+			D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE);
+
+		ComPtr<ID3DBlob> localRootSigBlob;
+		ComPtr<ID3DBlob> localRootSigErrors;
+		HRESULT hr = D3D12SerializeRootSignature(&localRootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
+			localRootSigBlob.GetAddressOf(), localRootSigErrors.GetAddressOf());
+		if (localRootSigErrors)
+			::OutputDebugStringA((char*)localRootSigErrors->GetBufferPointer());
+		ThrowIfFailed(hr);
+
+		ComPtr<ID3D12RootSignature> localRootSig;
+		ThrowIfFailed(md3dDevice->CreateRootSignature(0,
+			localRootSigBlob->GetBufferPointer(), localRootSigBlob->GetBufferSize(),
+			IID_PPV_ARGS(&localRootSig)));
+
+		// Резервируем место для всех subobjects, чтобы избежать реаллокации
+		subobjects.reserve(10);
+
+		D3D12_STATE_SUBOBJECT localRootSigSubobj = {};
+		localRootSigSubobj.Type = D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
+		ID3D12RootSignature* pLocalRootSig = localRootSig.Get();
+		localRootSigSubobj.pDesc = &pLocalRootSig;
+		UINT localRootSigIndex = (UINT)subobjects.size();
+		subobjects.push_back(localRootSigSubobj);
+
+		// 2.7 Subobject-to-Exports Association (привязываем local root signature к hit group И к any-hit shader)
+		static const WCHAR* exports[] = { L"ShadowHitGroup", L"ShadowAnyHit" };
+		static D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION association = {};
+		association.pSubobjectToAssociate = &subobjects[localRootSigIndex];
+		association.NumExports = 2; // Hit group + Any-Hit shader
+		association.pExports = exports;
+
+		D3D12_STATE_SUBOBJECT associationSubobj = {};
+		associationSubobj.Type = D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION;
+		associationSubobj.pDesc = &association;
+		subobjects.push_back(associationSubobj);
+
+		// 3. Создаем RTPSO
+		D3D12_STATE_OBJECT_DESC stateObjectDesc = {};
+		stateObjectDesc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
+		stateObjectDesc.NumSubobjects = (UINT)subobjects.size();
+		stateObjectDesc.pSubobjects = subobjects.data();
+
+		ComPtr<ID3D12Device5> device5;
+		ThrowIfFailed(md3dDevice.As(&device5));
+
+		ThrowIfFailed(device5->CreateStateObject(
+			&stateObjectDesc,
+			IID_PPV_ARGS(&mDxrShadowRTPSO)));
+
+		// 4. Получаем properties для shader identifiers
+		ThrowIfFailed(mDxrShadowRTPSO.As(&mDxrShadowRTPSOProps));
+
+		std::cout << "[DXR] Ray Tracing PSO created successfully\n";
+	}
+	catch (const DxException& e)
+	{
+		std::wcout << "[DXR] Failed to create RTPSO: " << e.ToString() << "\n";
+		mEnableDxrShadows = false;
+		mDxrShadowRTPSO = nullptr;
+		mDxrShadowRTPSOProps = nullptr;
+	}
+}
+
 void RayTracingApp::CreatePointLight(XMFLOAT3 pos, XMFLOAT3 color, float faloff_start, float faloff_end, float strength)
 {
 	Light light = {};
@@ -2046,7 +2264,7 @@ void RayTracingApp::BuildDescriptorHeaps()
 	const int texturesCount = (int)mTextures.size();
 	const int kGbufferCount = 4; // Albedo, Normal, Position, Velocity
 	const int kTaaCount = 10; // 2 tables * 5 SRVs
-	const int kDxrCount = 3; // TLAS SRV + ShadowMask UAV + ShadowMask SRV
+	const int kDxrCount = 5; // TLAS SRV + ShadowMask UAV + ShadowMask SRV + Unified Vertex Buffer + Unified Index Buffer
 
 
 	const int baseTextures = 0;
@@ -2082,6 +2300,8 @@ void RayTracingApp::BuildDescriptorHeaps()
 	mDxrTlasSrvIndex = baseDxr + 0;
 	mDxrShadowMaskUavIndex = baseDxr + 1;
 	mDxrShadowMaskSrvIndex = baseDxr + 2;
+	mDxrUnifiedVertexBufferSrvIndex = baseDxr + 3;
+	mDxrUnifiedIndexBufferSrvIndex = baseDxr + 4;
 
 	// 1) Create SRV heap (only if needed). Recreating it after ImGui init can break ImGui.
 	bool needCreate = true;
@@ -2228,7 +2448,7 @@ void RayTracingApp::BuildDescriptorHeaps()
 	auto texIdx = [&](const std::string& name) -> int {
 		auto it = TexOffsets.find(name);
 		return (it != TexOffsets.end()) ? it->second : -1;
-	};
+		};
 	if (texIdx("001/Height_Out") >= 0)
 		mTerrainHeightmapIndicesLOD0.push_back(texIdx("001/Height_Out"));
 	for (int z = 0; z < 2; ++z)
@@ -2969,7 +3189,7 @@ void RayTracingApp::BuildMaterials()
 		std::cout << "  Texture: " << kv.first << " -> Index: " << TexOffsets[kv.first] << std::endl;
 	}
 	std::cout << "========================================\n" << std::endl;
-	
+
 	// Проверяем наличие текстур и используем fallback если их нет
 	int textureDiffIdx = (TexOffsets.find("texture") != TexOffsets.end()) ? TexOffsets["texture"] : 0;
 	int textureNmapIdx = (TexOffsets.find("texture_nm") != TexOffsets.end()) ? TexOffsets["texture_nm"] : 0;
@@ -2977,17 +3197,17 @@ void RayTracingApp::BuildMaterials()
 	int bricksNmapIdx = (TexOffsets.find("bricks_nmap") != TexOffsets.end()) ? TexOffsets["bricks_nmap"] : 0;
 	int white1x1Idx = (TexOffsets.find("white1x1") != TexOffsets.end()) ? TexOffsets["white1x1"] : 0;
 	int defaultNmapIdx = (TexOffsets.find("default_nmap") != TexOffsets.end()) ? TexOffsets["default_nmap"] : 0;
-	
+
 	std::cout << "HeadMat will use: texture=" << textureDiffIdx << ", texture_nm=" << textureNmapIdx << std::endl;
 	std::cout << "BricksMat will use: bricks=" << bricksIdx << ", bricks_nmap=" << bricksNmapIdx << std::endl;
-	
+
 	// Материал для африканской головы - используем texture.dds и texture_nm.dds
 	CreateMaterial("HeadMat", 0, textureDiffIdx, textureNmapIdx,
 		XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
 		XMFLOAT3(0.04f, 0.04f, 0.04f),
 		0.82f,
 		0.0f);
-	
+
 	// Материал для плоскости с текстурой bricks
 	CreateMaterial("BricksMat", 0, bricksIdx, bricksNmapIdx,
 		XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
@@ -2998,6 +3218,27 @@ void RayTracingApp::BuildMaterials()
 	// Материал для отладки движущихся объектов
 	CreateMaterial("MovingRed", 0, white1x1Idx, defaultNmapIdx,
 		XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f), XMFLOAT3(0.05f, 0.05f, 0.05f), 0.3f, 0.0f);
+
+	// Материал с прозрачной текстурой
+
+	int wireFenceIdx = (TexOffsets.find("pngwing") != TexOffsets.end()) ? TexOffsets["pngwing"] : white1x1Idx;
+	CreateMaterial("AlphaTestMat", 0, wireFenceIdx, defaultNmapIdx,
+		XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
+		XMFLOAT3(0.04f, 0.04f, 0.04f),
+		0.5f,
+		0.0f);
+
+
+	// Материал с прозрачной текстурой для alpha-tested shadows
+	/*
+	int wireFenceIdx = (TexOffsets.find("WireFence") != TexOffsets.end()) ? TexOffsets["WireFence"] : white1x1Idx;
+	std::cout << "[Material] AlphaTestMat using WireFence texture index: " << wireFenceIdx << "\n";
+	CreateMaterial("AlphaTestMat", 0, wireFenceIdx, defaultNmapIdx,
+		XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
+		XMFLOAT3(0.04f, 0.04f, 0.04f),
+		0.5f,
+		0.0f);
+	*/
 }
 void RayTracingApp::RenderCustomMesh(std::string unique_name, std::string meshname, std::string materialName, XMFLOAT3 Scale, XMFLOAT3 Rotation, XMFLOAT3 Position)
 {
@@ -3059,8 +3300,29 @@ void RayTracingApp::BuildRenderItems()
 	planeRitem->BaseVertexLocation = planeRitem->Geo->DrawArgs["grid"].BaseVertexLocation;
 	mAllRitems.push_back(std::move(planeRitem));
 
+	// Вертикальный plane с прозрачной текстурой
+	auto alphaPlane = std::make_unique<RenderItem>();
+	alphaPlane->Name = "alphaPlane";
+	// Поворачиваем на 90 градусов вокруг X, чтобы plane стоял вертикально
+	XMStoreFloat4x4(&alphaPlane->World,
+		XMMatrixScaling(3.0f, 3.0f, 1.0f) *
+		XMMatrixRotationX(XM_PIDIV2) *
+		XMMatrixTranslation(0.0f, 10.0f, -5.0f));
+	alphaPlane->PrevWorld = alphaPlane->World;
+	XMStoreFloat4x4(&alphaPlane->TexTransform, XMMatrixScaling(1, 1, 1));
+	alphaPlane->ObjCBIndex = (UINT)mAllRitems.size();
+	alphaPlane->Mat = mMaterials["AlphaTestMat"].get();
+	alphaPlane->BaseMat = alphaPlane->Mat;
+	alphaPlane->Geo = mGeometries["shapeGeo"].get();
+	alphaPlane->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	alphaPlane->IndexCount = alphaPlane->Geo->DrawArgs["grid"].IndexCount;
+	alphaPlane->StartIndexLocation = alphaPlane->Geo->DrawArgs["grid"].StartIndexLocation;
+	alphaPlane->BaseVertexLocation = alphaPlane->Geo->DrawArgs["grid"].BaseVertexLocation;
+	alphaPlane->RequiresAlphaTest = true; // Нужна проверка альфа-канала
+	mAllRitems.push_back(std::move(alphaPlane));
+
 	BuildFrameResources();
-	
+
 	// Все объекты непрозрачные
 	for (auto& e : mAllRitems)
 	{
@@ -3254,8 +3516,8 @@ void RayTracingApp::DeferredDraw(const GameTimer& gt)
 	Transition(mGBufferPosition.Get(), mGBufferState[2], kSrvRead);
 	Transition(mGBufferVelocity.Get(), mGBufferState[3], kSrvRead);
 
-	// DXR shadow mask pass (RayQuery compute) before lighting
-	DispatchDxrShadowMask(mCommandList.Get());
+	// DXR shadow mask pass (TraceRay pipeline) before lighting
+	DispatchDxrShadowRays(mCommandList.Get());
 
 	// 2) LIGHTING PASS -> mSceneTexture
 	Transition(mSceneTexture.Get(), mSceneState, D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -3343,7 +3605,7 @@ void RayTracingApp::DeferredDraw(const GameTimer& gt)
 		// Пропускаем point (type=1) и spot (type=3) источники света
 		if (light.type == 1 || light.type == 3)
 			continue;
-		
+
 		const bool useDxrThisLight =
 			(mEnableDxrShadows && mDxrShadowMask && mDxrTlas && mDxrShadowMaskSrvIndex >= 0) &&
 			(light.CastsShadows) &&
@@ -3665,6 +3927,31 @@ void RayTracingApp::CreateDxrShadowDescriptors()
 		srv.Texture2D.ResourceMinLODClamp = 0.0f;
 		md3dDevice->CreateShaderResourceView(mDxrShadowMask.Get(), &srv, cpuAt(mDxrShadowMaskSrvIndex));
 	}
+
+	// Unified geometry buffers SRVs
+	if (mDxrUnifiedVertexBuffer && mDxrUnifiedVertexBufferSrvIndex >= 0)
+	{
+		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+		srvDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+		srvDesc.Buffer.FirstElement = 0;
+		srvDesc.Buffer.NumElements = (UINT)(mDxrUnifiedVertexBuffer->GetDesc().Width / 4); // Divide by 4 for DWORD count
+		srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW; // RAW buffer for ByteAddressBuffer
+		md3dDevice->CreateShaderResourceView(mDxrUnifiedVertexBuffer.Get(), &srvDesc, cpuAt(mDxrUnifiedVertexBufferSrvIndex));
+	}
+
+	if (mDxrUnifiedIndexBuffer && mDxrUnifiedIndexBufferSrvIndex >= 0)
+	{
+		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+		srvDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+		srvDesc.Buffer.FirstElement = 0;
+		srvDesc.Buffer.NumElements = (UINT)(mDxrUnifiedIndexBuffer->GetDesc().Width / sizeof(UINT32));
+		srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+		md3dDevice->CreateShaderResourceView(mDxrUnifiedIndexBuffer.Get(), &srvDesc, cpuAt(mDxrUnifiedIndexBufferSrvIndex));
+	}
 }
 
 void RayTracingApp::BuildDxrAccelerationStructures()
@@ -3683,238 +3970,300 @@ void RayTracingApp::BuildDxrAccelerationStructures()
 		ComPtr<ID3D12GraphicsCommandList4> cmd4;
 		ThrowIfFailed(mCommandList.As(&cmd4));
 
-	// Cache BLAS per unique (Geo + submesh range).
-	struct BlasKey
-	{
-		MeshGeometry* Geo = nullptr;
-		UINT IndexCount = 0;
-		UINT StartIndexLocation = 0;
-		INT BaseVertexLocation = 0;
-	};
-	struct BlasKeyHash
-	{
-		size_t operator()(const BlasKey& k) const noexcept
+		// Кешируем BLAS для каждой уникальной геометрии
+		struct BlasKey
 		{
-			size_t h = std::hash<void*>()(k.Geo);
-			auto hc = [&](size_t v) { h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2); };
-			hc(std::hash<UINT>()(k.IndexCount));
-			hc(std::hash<UINT>()(k.StartIndexLocation));
-			hc(std::hash<int>()(k.BaseVertexLocation));
-			return h;
-		}
-	};
-	struct BlasKeyEq
-	{
-		bool operator()(const BlasKey& a, const BlasKey& b) const noexcept
+			MeshGeometry* Geo = nullptr;
+			UINT IndexCount = 0;
+			UINT StartIndexLocation = 0;
+			INT BaseVertexLocation = 0;
+			bool RequiresAlphaTest = false; // Прозрачные объекты в отдельный BLAS
+		};
+		struct BlasKeyHash
 		{
-			return a.Geo == b.Geo &&
-				a.IndexCount == b.IndexCount &&
-				a.StartIndexLocation == b.StartIndexLocation &&
-				a.BaseVertexLocation == b.BaseVertexLocation;
+			size_t operator()(const BlasKey& k) const noexcept
+			{
+				size_t h = std::hash<void*>()(k.Geo);
+				auto hc = [&](size_t v) { h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2); };
+				hc(std::hash<UINT>()(k.IndexCount));
+				hc(std::hash<UINT>()(k.StartIndexLocation));
+				hc(std::hash<int>()(k.BaseVertexLocation));
+				hc(std::hash<bool>()(k.RequiresAlphaTest));
+				return h;
+			}
+		};
+		struct BlasKeyEq
+		{
+			bool operator()(const BlasKey& a, const BlasKey& b) const noexcept
+			{
+				return a.Geo == b.Geo &&
+					a.IndexCount == b.IndexCount &&
+					a.StartIndexLocation == b.StartIndexLocation &&
+					a.BaseVertexLocation == b.BaseVertexLocation &&
+					a.RequiresAlphaTest == b.RequiresAlphaTest;
+			}
+		};
+
+		std::unordered_map<BlasKey, UINT, BlasKeyHash, BlasKeyEq> blasIndex;
+		struct BlasBuild
+		{
+			BlasKey Key;
+			D3D12_RAYTRACING_GEOMETRY_DESC Geom = {};
+			D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS Inputs = {};
+			D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO Info = {};
+		};
+		std::vector<BlasBuild> builds;
+		builds.reserve(mOpaqueRitems.size());
+
+		UINT64 maxScratch = 0;
+		for (auto ri : mOpaqueRitems)
+		{
+			if (!ri || !ri->Geo || !ri->Geo->VertexBufferGPU || !ri->Geo->IndexBufferGPU)
+				continue;
+
+			if (ri->RequiresAlphaTest)
+			{
+				std::cout << "[DXR] Found alpha-tested item: " << ri->Name << "\n";
+			}
+
+			BlasKey key;
+			key.Geo = ri->Geo;
+			key.IndexCount = ri->IndexCount;
+			key.StartIndexLocation = ri->StartIndexLocation;
+			key.BaseVertexLocation = ri->BaseVertexLocation;
+			key.RequiresAlphaTest = ri->RequiresAlphaTest;
+
+			if (blasIndex.find(key) != blasIndex.end())
+				continue;
+
+			BlasBuild b;
+			b.Key = key;
+
+			const UINT stride = sizeof(Vertex);
+
+			// Find max index to determine actual vertex count needed
+			UINT maxIndex = 0;
+			UINT minIndex = UINT_MAX;
+			if (key.Geo->IndexFormat == DXGI_FORMAT_R16_UINT)
+			{
+				UINT16* indices = (UINT16*)key.Geo->IndexBufferCPU->GetBufferPointer();
+				for (UINT i = 0; i < key.IndexCount; ++i)
+				{
+					UINT idx = indices[key.StartIndexLocation + i];
+					maxIndex = max(maxIndex, idx);
+					minIndex = min(minIndex, idx);
+				}
+			}
+			else
+			{
+				UINT32* indices = (UINT32*)key.Geo->IndexBufferCPU->GetBufferPointer();
+				for (UINT i = 0; i < key.IndexCount; ++i)
+				{
+					UINT idx = indices[key.StartIndexLocation + i];
+					maxIndex = max(maxIndex, idx);
+					minIndex = min(minIndex, idx);
+				}
+			}
+
+			// Vertex count based on the range of indices actually used
+			// maxIndex is the highest index, so we need maxIndex + 1 vertices total
+			// But we start from BaseVertexLocation, so actual count is maxIndex - BaseVertexLocation + 1
+			const UINT vertsFromBase = (maxIndex >= (UINT)key.BaseVertexLocation) ?
+				(maxIndex - (UINT)key.BaseVertexLocation + 1) : (maxIndex + 1);
+
+			b.Geom.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+			// Прозрачные объекты не помечаем как OPAQUE
+			b.Geom.Flags = ri->RequiresAlphaTest ? D3D12_RAYTRACING_GEOMETRY_FLAG_NONE : D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+
+			// Debug output
+			if (ri->RequiresAlphaTest)
+			{
+				std::cout << "[DXR] BLAS for " << ri->Name << ": NON_OPAQUE (alpha testing enabled)\n";
+			}
+
+			b.Geom.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+			b.Geom.Triangles.VertexCount = vertsFromBase;
+			b.Geom.Triangles.VertexBuffer.StartAddress =
+				key.Geo->VertexBufferGPU->GetGPUVirtualAddress() + (UINT64)key.BaseVertexLocation * stride;
+			b.Geom.Triangles.VertexBuffer.StrideInBytes = stride;
+
+			const DXGI_FORMAT idxFmt = key.Geo->IndexFormat;
+			const UINT idxStride = (idxFmt == DXGI_FORMAT_R32_UINT) ? 4u : 2u;
+			b.Geom.Triangles.IndexFormat = idxFmt;
+			b.Geom.Triangles.IndexCount = key.IndexCount;
+			b.Geom.Triangles.IndexBuffer =
+				key.Geo->IndexBufferGPU->GetGPUVirtualAddress() + (UINT64)key.StartIndexLocation * idxStride;
+			b.Geom.Triangles.Transform3x4 = 0;
+
+			b.Inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+			b.Inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+			b.Inputs.NumDescs = 1;
+			b.Inputs.pGeometryDescs = &b.Geom;
+			b.Inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+
+			device5->GetRaytracingAccelerationStructurePrebuildInfo(&b.Inputs, &b.Info);
+			maxScratch = max(maxScratch, b.Info.ScratchDataSizeInBytes);
+
+			UINT idx = (UINT)builds.size();
+			blasIndex[key] = idx;
+
+			// Debug: print BLAS info with min/max indices
+			std::cout << "[DXR] Creating BLAS " << idx << " for " << ri->Name
+				<< ": vtxCount=" << vertsFromBase
+				<< ", idxCount=" << key.IndexCount
+				<< ", minIdx=" << minIndex
+				<< ", maxIdx=" << maxIndex
+				<< ", baseVtx=" << key.BaseVertexLocation
+				<< ", alphaTest=" << (ri->RequiresAlphaTest ? "YES" : "NO") << "\n";
+
+			builds.push_back(std::move(b));
+			// Fix pointer after move: Inputs.pGeometryDescs must point to the element's own Geom.
+			builds[idx].Inputs.pGeometryDescs = &builds[idx].Geom;
 		}
-	};
 
-	std::unordered_map<BlasKey, UINT, BlasKeyHash, BlasKeyEq> blasIndex;
-	struct BlasBuild
-	{
-		BlasKey Key;
-		D3D12_RAYTRACING_GEOMETRY_DESC Geom = {};
-		D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS Inputs = {};
-		D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO Info = {};
-	};
-	std::vector<BlasBuild> builds;
-	builds.reserve(mOpaqueRitems.size());
+		if (builds.empty())
+		{
+			mEnableDxrShadows = false;
+			return;
+		}
 
-	UINT64 maxScratch = 0;
-	for (auto ri : mOpaqueRitems)
-	{
-		if (!ri || !ri->Geo || !ri->Geo->VertexBufferGPU || !ri->Geo->IndexBufferGPU)
-			continue;
-
-		BlasKey key;
-		key.Geo = ri->Geo;
-		key.IndexCount = ri->IndexCount;
-		key.StartIndexLocation = ri->StartIndexLocation;
-		key.BaseVertexLocation = ri->BaseVertexLocation;
-
-		if (blasIndex.find(key) != blasIndex.end())
-			continue;
-
-		BlasBuild b;
-		b.Key = key;
-
-		const UINT stride = sizeof(Vertex);
-		const UINT totalVerts = (UINT)(key.Geo->VertexBufferByteSize / stride);
-		const UINT vertsFromBase = (totalVerts > (UINT)max(0, key.BaseVertexLocation)) ? (totalVerts - (UINT)key.BaseVertexLocation) : totalVerts;
-
-		b.Geom.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-		b.Geom.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
-		b.Geom.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
-		b.Geom.Triangles.VertexCount = vertsFromBase;
-		b.Geom.Triangles.VertexBuffer.StartAddress =
-			key.Geo->VertexBufferGPU->GetGPUVirtualAddress() + (UINT64)key.BaseVertexLocation * stride;
-		b.Geom.Triangles.VertexBuffer.StrideInBytes = stride;
-
-		const DXGI_FORMAT idxFmt = key.Geo->IndexFormat;
-		const UINT idxStride = (idxFmt == DXGI_FORMAT_R32_UINT) ? 4u : 2u;
-		b.Geom.Triangles.IndexFormat = idxFmt;
-		b.Geom.Triangles.IndexCount = key.IndexCount;
-		b.Geom.Triangles.IndexBuffer =
-			key.Geo->IndexBufferGPU->GetGPUVirtualAddress() + (UINT64)key.StartIndexLocation * idxStride;
-		b.Geom.Triangles.Transform3x4 = 0;
-
-		b.Inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
-		b.Inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
-		b.Inputs.NumDescs = 1;
-		b.Inputs.pGeometryDescs = &b.Geom;
-		b.Inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
-
-		device5->GetRaytracingAccelerationStructurePrebuildInfo(&b.Inputs, &b.Info);
-		maxScratch = max(maxScratch, b.Info.ScratchDataSizeInBytes);
-
-		UINT idx = (UINT)builds.size();
-		blasIndex[key] = idx;
-		builds.push_back(std::move(b));
-		// Fix pointer after move: Inputs.pGeometryDescs must point to the element's own Geom.
-		builds[idx].Inputs.pGeometryDescs = &builds[idx].Geom;
-	}
-
-	if (builds.empty())
-	{
-		mEnableDxrShadows = false;
-		return;
-	}
-
-	// Scratch for BLAS builds (reused).
-	ThrowIfFailed(md3dDevice->CreateCommittedResource(
-		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-		D3D12_HEAP_FLAG_NONE,
-		&CD3DX12_RESOURCE_DESC::Buffer(maxScratch, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
-		D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-		nullptr,
-		IID_PPV_ARGS(&mDxrBlasScratch)));
-
-	mDxrBlas.clear();
-	mDxrBlas.resize(builds.size());
-
-	for (UINT i = 0; i < (UINT)builds.size(); ++i)
-	{
-		UINT64 resultSize = builds[i].Info.ResultDataMaxSizeInBytes;
+		// Scratch for BLAS builds (reused).
 		ThrowIfFailed(md3dDevice->CreateCommittedResource(
 			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
 			D3D12_HEAP_FLAG_NONE,
-			&CD3DX12_RESOURCE_DESC::Buffer(resultSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
+			&CD3DX12_RESOURCE_DESC::Buffer(maxScratch, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
+			D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+			nullptr,
+			IID_PPV_ARGS(&mDxrBlasScratch)));
+
+		mDxrBlas.clear();
+		mDxrBlas.resize(builds.size());
+
+		for (UINT i = 0; i < (UINT)builds.size(); ++i)
+		{
+			UINT64 resultSize = builds[i].Info.ResultDataMaxSizeInBytes;
+			ThrowIfFailed(md3dDevice->CreateCommittedResource(
+				&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+				D3D12_HEAP_FLAG_NONE,
+				&CD3DX12_RESOURCE_DESC::Buffer(resultSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
+				D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+				nullptr,
+				IID_PPV_ARGS(&mDxrBlas[i])));
+
+			D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC desc = {};
+			desc.Inputs = builds[i].Inputs;
+			desc.DestAccelerationStructureData = mDxrBlas[i]->GetGPUVirtualAddress();
+			desc.ScratchAccelerationStructureData = mDxrBlasScratch->GetGPUVirtualAddress();
+			cmd4->BuildRaytracingAccelerationStructure(&desc, 0, nullptr);
+			mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::UAV(mDxrBlas[i].Get()));
+		}
+
+		// TLAS instances (one per opaque render item, stable order).
+		mDxrInstances.clear();
+		mDxrInstances.reserve(mOpaqueRitems.size());
+		for (auto ri : mOpaqueRitems)
+		{
+			if (!ri || !ri->Geo) continue;
+
+			BlasKey key;
+			key.Geo = ri->Geo;
+			key.IndexCount = ri->IndexCount;
+			key.StartIndexLocation = ri->StartIndexLocation;
+			key.BaseVertexLocation = ri->BaseVertexLocation;
+			key.RequiresAlphaTest = ri->RequiresAlphaTest;
+
+			auto it = blasIndex.find(key);
+			if (it == blasIndex.end()) continue;
+
+			UINT blasIdx = it->second;
+			mDxrInstances.push_back({ ri, blasIdx });
+
+			// Debug output
+			std::cout << "[DXR] Instance " << mDxrInstances.size() - 1 << " (" << ri->Name
+				<< "): BLAS=" << blasIdx
+				<< ", alphaTest=" << (ri->RequiresAlphaTest ? "YES" : "NO") << "\n";
+		}
+
+		const UINT instanceCount = (UINT)mDxrInstances.size();
+		if (instanceCount == 0)
+		{
+			mEnableDxrShadows = false;
+			return;
+		}
+
+		const UINT64 instanceBufferSize = (UINT64)instanceCount * sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
+
+		// Per-frame instance buffers to avoid CPU/GPU races when updating transforms.
+		mDxrInstanceDescs.clear();
+		mDxrInstanceDescs.resize((size_t)gNumFrameResources);
+		for (int fi = 0; fi < gNumFrameResources; ++fi)
+		{
+			ThrowIfFailed(md3dDevice->CreateCommittedResource(
+				&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+				D3D12_HEAP_FLAG_NONE,
+				&CD3DX12_RESOURCE_DESC::Buffer(instanceBufferSize),
+				D3D12_RESOURCE_STATE_GENERIC_READ,
+				nullptr,
+				IID_PPV_ARGS(&mDxrInstanceDescs[fi])));
+
+			D3D12_RAYTRACING_INSTANCE_DESC* mapped = nullptr;
+			ThrowIfFailed(mDxrInstanceDescs[fi]->Map(0, nullptr, (void**)&mapped));
+
+			for (UINT i = 0; i < instanceCount; ++i)
+			{
+				RenderItem* ri = mDxrInstances[i].Ri;
+				const UINT blasIdx = mDxrInstances[i].BlasIndex;
+				D3D12_RAYTRACING_INSTANCE_DESC& inst = mapped[i];
+				memset(&inst, 0, sizeof(inst));
+				inst.InstanceID = i;
+				inst.InstanceContributionToHitGroupIndex = 0;
+				inst.InstanceMask = 0xFF;
+				inst.Flags = D3D12_RAYTRACING_INSTANCE_FLAG_NONE;
+
+				// Row-major 3x4 transform from RenderItem world matrix.
+				const XMFLOAT4X4& W = ri->World;
+				for (int r = 0; r < 3; ++r)
+					for (int c = 0; c < 4; ++c)
+						inst.Transform[r][c] = W.m[r][c];
+
+				inst.AccelerationStructure = mDxrBlas[blasIdx]->GetGPUVirtualAddress();
+			}
+			mDxrInstanceDescs[fi]->Unmap(0, nullptr);
+		}
+
+		D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS tlasInputs = {};
+		tlasInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+		tlasInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+		tlasInputs.NumDescs = instanceCount;
+		tlasInputs.InstanceDescs = mDxrInstanceDescs.empty() ? 0 : mDxrInstanceDescs[0]->GetGPUVirtualAddress();
+		tlasInputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
+			D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE;
+
+		D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO tlasInfo = {};
+		device5->GetRaytracingAccelerationStructurePrebuildInfo(&tlasInputs, &tlasInfo);
+
+		const UINT64 tlasScratchSize = max(tlasInfo.ScratchDataSizeInBytes, tlasInfo.UpdateScratchDataSizeInBytes);
+		ThrowIfFailed(md3dDevice->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Buffer(tlasScratchSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
+			D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+			nullptr,
+			IID_PPV_ARGS(&mDxrTlasScratch)));
+
+		ThrowIfFailed(md3dDevice->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Buffer(tlasInfo.ResultDataMaxSizeInBytes, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
 			D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
 			nullptr,
-			IID_PPV_ARGS(&mDxrBlas[i])));
+			IID_PPV_ARGS(&mDxrTlas)));
 
-		D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC desc = {};
-		desc.Inputs = builds[i].Inputs;
-		desc.DestAccelerationStructureData = mDxrBlas[i]->GetGPUVirtualAddress();
-		desc.ScratchAccelerationStructureData = mDxrBlasScratch->GetGPUVirtualAddress();
-		cmd4->BuildRaytracingAccelerationStructure(&desc, 0, nullptr);
-		mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::UAV(mDxrBlas[i].Get()));
-	}
-
-	// TLAS instances (one per opaque render item, stable order).
-	mDxrInstances.clear();
-	mDxrInstances.reserve(mOpaqueRitems.size());
-	for (auto ri : mOpaqueRitems)
-	{
-		if (!ri || !ri->Geo) continue;
-
-		BlasKey key;
-		key.Geo = ri->Geo;
-		key.IndexCount = ri->IndexCount;
-		key.StartIndexLocation = ri->StartIndexLocation;
-		key.BaseVertexLocation = ri->BaseVertexLocation;
-
-		auto it = blasIndex.find(key);
-		if (it == blasIndex.end()) continue;
-
-		mDxrInstances.push_back({ ri, it->second });
-	}
-
-	const UINT instanceCount = (UINT)mDxrInstances.size();
-	if (instanceCount == 0)
-	{
-		mEnableDxrShadows = false;
-		return;
-	}
-
-	const UINT64 instanceBufferSize = (UINT64)instanceCount * sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
-
-	// Per-frame instance buffers to avoid CPU/GPU races when updating transforms.
-	mDxrInstanceDescs.clear();
-	mDxrInstanceDescs.resize((size_t)gNumFrameResources);
-	for (int fi = 0; fi < gNumFrameResources; ++fi)
-	{
-		ThrowIfFailed(md3dDevice->CreateCommittedResource(
-			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-			D3D12_HEAP_FLAG_NONE,
-			&CD3DX12_RESOURCE_DESC::Buffer(instanceBufferSize),
-			D3D12_RESOURCE_STATE_GENERIC_READ,
-			nullptr,
-			IID_PPV_ARGS(&mDxrInstanceDescs[fi])));
-
-		D3D12_RAYTRACING_INSTANCE_DESC* mapped = nullptr;
-		ThrowIfFailed(mDxrInstanceDescs[fi]->Map(0, nullptr, (void**)&mapped));
-
-		for (UINT i = 0; i < instanceCount; ++i)
-		{
-			RenderItem* ri = mDxrInstances[i].Ri;
-			const UINT blasIdx = mDxrInstances[i].BlasIndex;
-			D3D12_RAYTRACING_INSTANCE_DESC& inst = mapped[i];
-			memset(&inst, 0, sizeof(inst));
-			inst.InstanceID = i;
-			inst.InstanceContributionToHitGroupIndex = 0;
-			inst.InstanceMask = 0xFF;
-			inst.Flags = D3D12_RAYTRACING_INSTANCE_FLAG_NONE;
-
-			// Row-major 3x4 transform from RenderItem world matrix.
-			const XMFLOAT4X4& W = ri->World;
-			for (int r = 0; r < 3; ++r)
-				for (int c = 0; c < 4; ++c)
-					inst.Transform[r][c] = W.m[r][c];
-
-			inst.AccelerationStructure = mDxrBlas[blasIdx]->GetGPUVirtualAddress();
-		}
-		mDxrInstanceDescs[fi]->Unmap(0, nullptr);
-	}
-
-	D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS tlasInputs = {};
-	tlasInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
-	tlasInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
-	tlasInputs.NumDescs = instanceCount;
-	tlasInputs.InstanceDescs = mDxrInstanceDescs.empty() ? 0 : mDxrInstanceDescs[0]->GetGPUVirtualAddress();
-	tlasInputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
-		D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE;
-
-	D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO tlasInfo = {};
-	device5->GetRaytracingAccelerationStructurePrebuildInfo(&tlasInputs, &tlasInfo);
-
-	const UINT64 tlasScratchSize = max(tlasInfo.ScratchDataSizeInBytes, tlasInfo.UpdateScratchDataSizeInBytes);
-	ThrowIfFailed(md3dDevice->CreateCommittedResource(
-		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-		D3D12_HEAP_FLAG_NONE,
-		&CD3DX12_RESOURCE_DESC::Buffer(tlasScratchSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
-		D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-		nullptr,
-		IID_PPV_ARGS(&mDxrTlasScratch)));
-
-	ThrowIfFailed(md3dDevice->CreateCommittedResource(
-		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-		D3D12_HEAP_FLAG_NONE,
-		&CD3DX12_RESOURCE_DESC::Buffer(tlasInfo.ResultDataMaxSizeInBytes, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
-		D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
-		nullptr,
-		IID_PPV_ARGS(&mDxrTlas)));
-
-	D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC tlasDesc = {};
-	tlasDesc.Inputs = tlasInputs;
-	tlasDesc.DestAccelerationStructureData = mDxrTlas->GetGPUVirtualAddress();
-	tlasDesc.ScratchAccelerationStructureData = mDxrTlasScratch->GetGPUVirtualAddress();
-	cmd4->BuildRaytracingAccelerationStructure(&tlasDesc, 0, nullptr);
+		D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC tlasDesc = {};
+		tlasDesc.Inputs = tlasInputs;
+		tlasDesc.DestAccelerationStructureData = mDxrTlas->GetGPUVirtualAddress();
+		tlasDesc.ScratchAccelerationStructureData = mDxrTlasScratch->GetGPUVirtualAddress();
+		cmd4->BuildRaytracingAccelerationStructure(&tlasDesc, 0, nullptr);
 		mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::UAV(mDxrTlas.Get()));
 	}
 	catch (const DxException&)
@@ -3927,6 +4276,428 @@ void RayTracingApp::BuildDxrAccelerationStructures()
 		mDxrInstanceDescs.clear();
 		mDxrBlas.clear();
 		mDxrInstances.clear();
+	}
+}
+
+void RayTracingApp::BuildDxrUnifiedGeometryBuffers()
+{
+	if (!mEnableDxrShadows || mDxrBlas.empty()) return;
+
+	try
+	{
+		std::cout << "[DXR] Building unified geometry buffers...\n";
+
+		// Собираем данные геометрии в том же порядке что и BLAS
+		// Use the same BlasKey logic to match BLAS to geometry
+		struct BlasKey
+		{
+			MeshGeometry* Geo = nullptr;
+			UINT IndexCount = 0;
+			UINT StartIndexLocation = 0;
+			INT BaseVertexLocation = 0;
+			bool RequiresAlphaTest = false;
+		};
+		struct BlasKeyHash
+		{
+			size_t operator()(const BlasKey& k) const noexcept
+			{
+				size_t h = std::hash<void*>()(k.Geo);
+				auto hc = [&](size_t v) { h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2); };
+				hc(std::hash<UINT>()(k.IndexCount));
+				hc(std::hash<UINT>()(k.StartIndexLocation));
+				hc(std::hash<int>()(k.BaseVertexLocation));
+				hc(std::hash<bool>()(k.RequiresAlphaTest));
+				return h;
+			}
+		};
+		struct BlasKeyEq
+		{
+			bool operator()(const BlasKey& a, const BlasKey& b) const noexcept
+			{
+				return a.Geo == b.Geo &&
+					a.IndexCount == b.IndexCount &&
+					a.StartIndexLocation == b.StartIndexLocation &&
+					a.BaseVertexLocation == b.BaseVertexLocation &&
+					a.RequiresAlphaTest == b.RequiresAlphaTest;
+			}
+		};
+
+		// Build mapping from BlasKey to BLAS index (same as in BuildDxrAccelerationStructures)
+		std::unordered_map<BlasKey, UINT, BlasKeyHash, BlasKeyEq> blasKeyToIndex;
+		UINT blasIdx = 0;
+		for (auto ri : mOpaqueRitems)
+		{
+			if (!ri || !ri->Geo || !ri->Geo->VertexBufferGPU || !ri->Geo->IndexBufferGPU)
+				continue;
+
+			BlasKey key;
+			key.Geo = ri->Geo;
+			key.IndexCount = ri->IndexCount;
+			key.StartIndexLocation = ri->StartIndexLocation;
+			key.BaseVertexLocation = ri->BaseVertexLocation;
+			key.RequiresAlphaTest = ri->RequiresAlphaTest;
+
+			if (blasKeyToIndex.find(key) == blasKeyToIndex.end())
+			{
+				blasKeyToIndex[key] = blasIdx++;
+			}
+		}
+
+		// Collect geometry data for each BLAS
+		struct GeomData
+		{
+			MeshGeometry* Geo;
+			UINT IndexCount;
+			UINT StartIndexLocation;
+			INT BaseVertexLocation;
+			UINT BlasIndex;
+		};
+		std::vector<GeomData> geometries;
+		geometries.resize(mDxrBlas.size());
+
+		for (auto ri : mOpaqueRitems)
+		{
+			if (!ri || !ri->Geo) continue;
+
+			BlasKey key;
+			key.Geo = ri->Geo;
+			key.IndexCount = ri->IndexCount;
+			key.StartIndexLocation = ri->StartIndexLocation;
+			key.BaseVertexLocation = ri->BaseVertexLocation;
+			key.RequiresAlphaTest = ri->RequiresAlphaTest;
+
+			auto it = blasKeyToIndex.find(key);
+			if (it != blasKeyToIndex.end())
+			{
+				UINT idx = it->second;
+				if (idx < geometries.size())
+				{
+					geometries[idx].Geo = ri->Geo;
+					geometries[idx].IndexCount = ri->IndexCount;
+					geometries[idx].StartIndexLocation = ri->StartIndexLocation;
+					geometries[idx].BaseVertexLocation = ri->BaseVertexLocation;
+					geometries[idx].BlasIndex = idx;
+				}
+			}
+		}
+
+		// Count total vertices and indices
+		UINT totalVertices = 0;
+		UINT totalIndices = 0;
+		for (const auto& g : geometries)
+		{
+			if (!g.Geo) continue;
+
+			const UINT stride = sizeof(Vertex);
+
+			// Find max index to determine actual vertex count needed (same logic as BLAS creation)
+			UINT maxIndex = 0;
+			UINT minIndex = UINT_MAX;
+			if (g.Geo->IndexFormat == DXGI_FORMAT_R16_UINT)
+			{
+				UINT16* indices = (UINT16*)g.Geo->IndexBufferCPU->GetBufferPointer();
+				for (UINT i = 0; i < g.IndexCount; ++i)
+				{
+					UINT idx = indices[g.StartIndexLocation + i];
+					maxIndex = max(maxIndex, idx);
+					minIndex = min(minIndex, idx);
+				}
+			}
+			else
+			{
+				UINT32* indices = (UINT32*)g.Geo->IndexBufferCPU->GetBufferPointer();
+				for (UINT i = 0; i < g.IndexCount; ++i)
+				{
+					UINT idx = indices[g.StartIndexLocation + i];
+					maxIndex = max(maxIndex, idx);
+					minIndex = min(minIndex, idx);
+				}
+			}
+
+			const UINT vertsFromBase = (maxIndex >= (UINT)g.BaseVertexLocation) ?
+				(maxIndex - (UINT)g.BaseVertexLocation + 1) : (maxIndex + 1);
+
+			totalVertices += vertsFromBase;
+			totalIndices += g.IndexCount;
+		}
+
+		if (totalVertices == 0 || totalIndices == 0)
+		{
+			std::cout << "[DXR] No geometry data to unify\n";
+			return;
+		}
+
+		std::cout << "[DXR] Total vertices: " << totalVertices << ", indices: " << totalIndices << "\n";
+
+		// Allocate unified buffers
+		const UINT64 vertexBufferSize = (UINT64)totalVertices * sizeof(Vertex);
+		const UINT64 indexBufferSize = (UINT64)totalIndices * sizeof(UINT32); // Use 32-bit indices
+
+		// Create upload buffers
+		ThrowIfFailed(md3dDevice->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
+			D3D12_RESOURCE_STATE_GENERIC_READ,
+			nullptr,
+			IID_PPV_ARGS(&mDxrUnifiedVertexBufferUpload)));
+
+		ThrowIfFailed(md3dDevice->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Buffer(indexBufferSize),
+			D3D12_RESOURCE_STATE_GENERIC_READ,
+			nullptr,
+			IID_PPV_ARGS(&mDxrUnifiedIndexBufferUpload)));
+
+		// Create default buffers
+		ThrowIfFailed(md3dDevice->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
+			D3D12_RESOURCE_STATE_COMMON,
+			nullptr,
+			IID_PPV_ARGS(&mDxrUnifiedVertexBuffer)));
+
+		ThrowIfFailed(md3dDevice->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Buffer(indexBufferSize),
+			D3D12_RESOURCE_STATE_COMMON,
+			nullptr,
+			IID_PPV_ARGS(&mDxrUnifiedIndexBuffer)));
+
+		// Map upload buffers
+		Vertex* vertexData = nullptr;
+		UINT32* indexData = nullptr;
+		ThrowIfFailed(mDxrUnifiedVertexBufferUpload->Map(0, nullptr, (void**)&vertexData));
+		ThrowIfFailed(mDxrUnifiedIndexBufferUpload->Map(0, nullptr, (void**)&indexData));
+
+		// Copy geometry data
+		mDxrGeometryInfos.clear();
+		mDxrGeometryInfos.resize(mDxrBlas.size()); // Resize to match BLAS count
+
+		UINT currentVertexOffset = 0;
+		UINT currentIndexOffset = 0;
+
+		for (size_t i = 0; i < geometries.size(); ++i)
+		{
+			const auto& g = geometries[i];
+
+			if (!g.Geo) continue; // Skip empty slots
+
+			// Get source data
+			Vertex* srcVertices = (Vertex*)g.Geo->VertexBufferCPU->GetBufferPointer();
+			const UINT stride = sizeof(Vertex);
+
+			// Find max index to determine actual vertex count needed (same logic as BLAS creation)
+			UINT maxIndex = 0;
+			UINT minIndex = UINT_MAX;
+			if (g.Geo->IndexFormat == DXGI_FORMAT_R16_UINT)
+			{
+				UINT16* indices = (UINT16*)g.Geo->IndexBufferCPU->GetBufferPointer();
+				for (UINT j = 0; j < g.IndexCount; ++j)
+				{
+					UINT idx = indices[g.StartIndexLocation + j];
+					maxIndex = max(maxIndex, idx);
+					minIndex = min(minIndex, idx);
+				}
+			}
+			else
+			{
+				UINT32* indices = (UINT32*)g.Geo->IndexBufferCPU->GetBufferPointer();
+				for (UINT j = 0; j < g.IndexCount; ++j)
+				{
+					UINT idx = indices[g.StartIndexLocation + j];
+					maxIndex = max(maxIndex, idx);
+					minIndex = min(minIndex, idx);
+				}
+			}
+
+			const UINT vertsFromBase = (maxIndex >= (UINT)g.BaseVertexLocation) ?
+				(maxIndex - (UINT)g.BaseVertexLocation + 1) : (maxIndex + 1);
+
+			// Определяем тип индексов (относительные или абсолютные)
+			bool indicesAreRelative = (minIndex < (UINT)g.BaseVertexLocation);
+
+			UINT vertexStartOffset = indicesAreRelative ? g.BaseVertexLocation : minIndex;
+
+			// Копируем вершины начиная с минимального индекса
+			memcpy(vertexData + currentVertexOffset,
+				srcVertices + vertexStartOffset,
+				vertsFromBase * sizeof(Vertex));
+
+			// Copy and convert indices
+			if (g.Geo->IndexFormat == DXGI_FORMAT_R16_UINT)
+			{
+				UINT16* srcIndices = (UINT16*)g.Geo->IndexBufferCPU->GetBufferPointer();
+				for (UINT j = 0; j < g.IndexCount; ++j)
+				{
+					UINT32 originalIndex = (UINT32)srcIndices[g.StartIndexLocation + j];
+					UINT32 adjustedIndex = indicesAreRelative ? originalIndex : (originalIndex - minIndex);
+					indexData[currentIndexOffset + j] = adjustedIndex;
+				}
+			}
+			else // R32_UINT
+			{
+				UINT32* srcIndices = (UINT32*)g.Geo->IndexBufferCPU->GetBufferPointer();
+				for (UINT j = 0; j < g.IndexCount; ++j)
+				{
+					UINT32 originalIndex = srcIndices[g.StartIndexLocation + j];
+					UINT32 adjustedIndex = indicesAreRelative ? originalIndex : (originalIndex - minIndex);
+					indexData[currentIndexOffset + j] = adjustedIndex;
+				}
+			}
+
+			// Сохраняем информацию о геометрии
+			UINT blasIndex = g.BlasIndex;
+			mDxrGeometryInfos[blasIndex].VertexOffset = currentVertexOffset;
+			mDxrGeometryInfos[blasIndex].IndexOffset = currentIndexOffset;
+			mDxrGeometryInfos[blasIndex].VertexCount = vertsFromBase;
+			mDxrGeometryInfos[blasIndex].IndexCount = g.IndexCount;
+
+			currentVertexOffset += vertsFromBase;
+			currentIndexOffset += g.IndexCount;
+		}
+
+		mDxrUnifiedVertexBufferUpload->Unmap(0, nullptr);
+		mDxrUnifiedIndexBufferUpload->Unmap(0, nullptr);
+
+		// Transition buffers to COPY_DEST
+		D3D12_RESOURCE_BARRIER barriersBeforeCopy[2] = {
+			CD3DX12_RESOURCE_BARRIER::Transition(mDxrUnifiedVertexBuffer.Get(),
+				D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST),
+			CD3DX12_RESOURCE_BARRIER::Transition(mDxrUnifiedIndexBuffer.Get(),
+				D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST)
+		};
+		mCommandList->ResourceBarrier(2, barriersBeforeCopy);
+
+		// Copy to GPU
+		mCommandList->CopyResource(mDxrUnifiedVertexBuffer.Get(), mDxrUnifiedVertexBufferUpload.Get());
+		mCommandList->CopyResource(mDxrUnifiedIndexBuffer.Get(), mDxrUnifiedIndexBufferUpload.Get());
+
+		// Transition to shader resource
+		D3D12_RESOURCE_BARRIER barriersAfterCopy[2] = {
+			CD3DX12_RESOURCE_BARRIER::Transition(mDxrUnifiedVertexBuffer.Get(),
+				D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+			CD3DX12_RESOURCE_BARRIER::Transition(mDxrUnifiedIndexBuffer.Get(),
+				D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
+		};
+		mCommandList->ResourceBarrier(2, barriersAfterCopy);
+
+		std::cout << "[DXR] Unified geometry buffers created successfully\n";
+	}
+	catch (const DxException& e)
+	{
+		std::wcout << L"[DXR] Failed to create unified geometry buffers: " << e.ToString() << L"\n";
+		mDxrUnifiedVertexBuffer.Reset();
+		mDxrUnifiedIndexBuffer.Reset();
+		mDxrGeometryInfos.clear();
+	}
+}
+
+void RayTracingApp::BuildDxrShadowShaderTable()
+{
+	if (!mEnableDxrShadows || !mDxrShadowRTPSO || !mDxrShadowRTPSOProps || mDxrInstances.empty())
+	{
+		mEnableDxrShadows = false;
+		return;
+	}
+
+	try
+	{
+		void* rayGenID = mDxrShadowRTPSOProps->GetShaderIdentifier(L"ShadowRayGen");
+		void* missID = mDxrShadowRTPSOProps->GetShaderIdentifier(L"ShadowMiss");
+		void* hitGroupID = mDxrShadowRTPSOProps->GetShaderIdentifier(L"ShadowHitGroup");
+
+		if (!rayGenID || !missID || !hitGroupID)
+		{
+			std::cout << "[DXR] Failed to get shader identifiers\n";
+			mEnableDxrShadows = false;
+			return;
+		}
+
+		const UINT shaderIDSize = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES; // 32
+		const UINT recordSize = 64; // Увеличено для geometry offsets
+		const UINT tableAlign = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT; // 64
+
+		auto Align = [](UINT size, UINT alignment) { return (size + alignment - 1) & ~(alignment - 1); };
+
+		const UINT rayGenSectionSize = Align(recordSize, tableAlign);
+		const UINT missSectionSize = Align(recordSize, tableAlign);
+		const UINT hitGroupSectionSize = Align(recordSize * (UINT)mDxrInstances.size(), tableAlign);
+
+		const UINT totalSize = rayGenSectionSize + missSectionSize + hitGroupSectionSize;
+
+		ThrowIfFailed(md3dDevice->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Buffer(totalSize),
+			D3D12_RESOURCE_STATE_GENERIC_READ,
+			nullptr,
+			IID_PPV_ARGS(&mDxrShadowShaderTable)));
+
+		UINT8* pData = nullptr;
+		ThrowIfFailed(mDxrShadowShaderTable->Map(0, nullptr, (void**)&pData));
+
+		UINT offset = 0;
+
+		// RayGen
+		memcpy(pData + offset, rayGenID, shaderIDSize);
+		offset += rayGenSectionSize;
+
+		// Miss
+		memcpy(pData + offset, missID, shaderIDSize);
+		offset += missSectionSize;
+
+		// Hit Groups (по одному на instance)
+		for (size_t i = 0; i < mDxrInstances.size(); ++i)
+		{
+			RenderItem* ri = mDxrInstances[i].Ri;
+			UINT blasIndex = mDxrInstances[i].BlasIndex;
+
+			memcpy(pData + offset, hitGroupID, shaderIDSize);
+
+			// Local root arguments (после shader ID)
+			UINT* localData = (UINT*)(pData + offset + shaderIDSize);
+
+			// Texture index
+			UINT textureIndex = (ri->Mat && ri->Mat->DiffuseSrvHeapIndex >= 0)
+				? ri->Mat->DiffuseSrvHeapIndex : 0;
+			localData[0] = textureIndex;
+
+			// Geometry offsets (если есть geometry info для этого BLAS)
+			if (blasIndex < mDxrGeometryInfos.size())
+			{
+				localData[1] = mDxrGeometryInfos[blasIndex].VertexOffset;
+				localData[2] = mDxrGeometryInfos[blasIndex].IndexOffset;
+				localData[3] = 0;
+			}
+			else
+			{
+				localData[1] = 0;
+				localData[2] = 0;
+				localData[3] = 0;
+			}
+
+			offset += recordSize;
+		}
+
+		mDxrShadowShaderTable->Unmap(0, nullptr);
+
+		// Сохраняем адреса
+		mDxrRayGenShaderTableStart = mDxrShadowShaderTable->GetGPUVirtualAddress();
+		mDxrMissShaderTableStart = mDxrRayGenShaderTableStart + rayGenSectionSize;
+		mDxrHitGroupShaderTableStart = mDxrMissShaderTableStart + missSectionSize;
+		mDxrShaderRecordSize = recordSize;
+
+		std::cout << "[DXR] Shader table created successfully (" << mDxrInstances.size() << " instances)\n";
+	}
+	catch (const DxException& e)
+	{
+		std::wcout << "[DXR] Shader table error: " << e.ToString() << "\n";
+		mEnableDxrShadows = false;
+		mDxrShadowShaderTable.Reset();
 	}
 }
 
@@ -4021,6 +4792,148 @@ void RayTracingApp::DispatchDxrShadowMask(ID3D12GraphicsCommandList* cmdList)
 	cmdList->Dispatch(gx, gy, 1);
 
 	// Make readable for lighting (t4 SRV).
+	Transition(mDxrShadowMask.Get(), mDxrShadowMaskState, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+}
+
+void RayTracingApp::DispatchDxrShadowRays(ID3D12GraphicsCommandList* cmdList)
+{
+	if (!mEnableDxrShadows) return;
+	if (!mDxrShadowRootSignature || !mDxrShadowRTPSO || !mDxrShadowMask || !mDxrTlas || !mDxrShadowCB) return;
+	if (!mDxrShadowShaderTable) return;
+	if (!cmdList) return;
+
+	// 1. Update TLAS every frame (same as old method)
+	if (mDxrUpdateTlasEveryFrame && !mDxrInstances.empty() && !mDxrInstanceDescs.empty() && mDxrTlasScratch && mDxrTlas)
+	{
+		ComPtr<ID3D12GraphicsCommandList4> cmd4;
+		if (SUCCEEDED(cmdList->QueryInterface(IID_PPV_ARGS(&cmd4))))
+		{
+			int fi = std::clamp(mCurrFrameResourceIndex, 0, gNumFrameResources - 1);
+			auto& instBuf = mDxrInstanceDescs[(size_t)fi];
+			if (!instBuf) return;
+
+			D3D12_RAYTRACING_INSTANCE_DESC* mapped = nullptr;
+			if (SUCCEEDED(instBuf->Map(0, nullptr, (void**)&mapped)))
+			{
+				for (UINT i = 0; i < (UINT)mDxrInstances.size(); ++i)
+				{
+					RenderItem* ri = mDxrInstances[i].Ri;
+					const UINT blasIdx = mDxrInstances[i].BlasIndex;
+					D3D12_RAYTRACING_INSTANCE_DESC& inst = mapped[i];
+
+					// Update transform only
+					const XMFLOAT4X4& W = ri->World;
+					for (int r = 0; r < 3; ++r)
+						for (int c = 0; c < 4; ++c)
+							inst.Transform[r][c] = W.m[r][c];
+
+					inst.AccelerationStructure = mDxrBlas[blasIdx]->GetGPUVirtualAddress();
+				}
+				instBuf->Unmap(0, nullptr);
+			}
+
+			D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
+			inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+			inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+			inputs.NumDescs = (UINT)mDxrInstances.size();
+			inputs.InstanceDescs = instBuf->GetGPUVirtualAddress();
+			inputs.Flags =
+				D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE |
+				D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+
+			D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC desc = {};
+			desc.Inputs = inputs;
+			desc.SourceAccelerationStructureData = mDxrTlas->GetGPUVirtualAddress();
+			desc.DestAccelerationStructureData = mDxrTlas->GetGPUVirtualAddress();
+			desc.ScratchAccelerationStructureData = mDxrTlasScratch->GetGPUVirtualAddress();
+			cmd4->BuildRaytracingAccelerationStructure(&desc, 0, nullptr);
+			cmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::UAV(mDxrTlas.Get()));
+		}
+	}
+
+	// 2. Transition resources
+	Transition(mDxrShadowMask.Get(), mDxrShadowMaskState, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+	// 3. Set pipeline state
+	ComPtr<ID3D12GraphicsCommandList4> cmdList4;
+	ThrowIfFailed(cmdList->QueryInterface(IID_PPV_ARGS(&cmdList4)));
+
+	cmdList4->SetComputeRootSignature(mDxrShadowRootSignature.Get());
+	cmdList4->SetPipelineState1(mDxrShadowRTPSO.Get());
+
+	// 4. Bind resources
+	auto gpuAt = [&](int idx) {
+		CD3DX12_GPU_DESCRIPTOR_HANDLE h(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+		h.Offset(idx, mCbvSrvDescriptorSize);
+		return h;
+		};
+
+	cmdList4->SetComputeRootDescriptorTable(0, gpuAt(mDxrTlasSrvIndex));
+	cmdList4->SetComputeRootDescriptorTable(1, gpuAt(mGBufferSrvIndexPosition));
+	cmdList4->SetComputeRootDescriptorTable(2, gpuAt(mGBufferSrvIndexNormal));
+
+	// t0,space1 = Texture array (начало heap с текстурами)
+	// Используем первую текстуру как базу для unbounded array
+	int baseTextureIndex = 0;
+	if (!TexOffsets.empty())
+		baseTextureIndex = TexOffsets.begin()->second;
+	cmdList4->SetComputeRootDescriptorTable(3, gpuAt(baseTextureIndex));
+
+	// t1,space1 = Unified Vertex Buffer
+	cmdList4->SetComputeRootDescriptorTable(4, gpuAt(mDxrUnifiedVertexBufferSrvIndex));
+
+	// t2,space1 = Unified Index Buffer
+	cmdList4->SetComputeRootDescriptorTable(5, gpuAt(mDxrUnifiedIndexBufferSrvIndex));
+
+	// u0 = Shadow Mask UAV
+	cmdList4->SetComputeRootDescriptorTable(6, gpuAt(mDxrShadowMaskUavIndex));
+
+	// b0 = constants
+	UINT cbByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(DxrShadowConstants));
+	D3D12_GPU_VIRTUAL_ADDRESS cbAddr = mDxrShadowCB->Resource()->GetGPUVirtualAddress() +
+		(UINT64)mCurrFrameResourceIndex * cbByteSize;
+	cmdList4->SetComputeRootConstantBufferView(7, cbAddr);
+
+	// 5. Setup DispatchRays descriptor
+	auto md = mDxrShadowMask->GetDesc();
+	const UINT maskW = (UINT)md.Width;
+	const UINT maskH = (UINT)md.Height;
+
+	D3D12_DISPATCH_RAYS_DESC desc = {};
+
+	// Ray Generation
+	desc.RayGenerationShaderRecord.StartAddress = mDxrRayGenShaderTableStart;
+	desc.RayGenerationShaderRecord.SizeInBytes = mDxrShaderRecordSize;
+
+	// Miss
+	desc.MissShaderTable.StartAddress = mDxrMissShaderTableStart;
+	desc.MissShaderTable.SizeInBytes = mDxrShaderRecordSize;
+	desc.MissShaderTable.StrideInBytes = mDxrShaderRecordSize;
+
+	// Hit Group
+	desc.HitGroupTable.StartAddress = mDxrHitGroupShaderTableStart;
+	desc.HitGroupTable.SizeInBytes = mDxrShaderRecordSize * (UINT)mDxrInstances.size();
+	desc.HitGroupTable.StrideInBytes = mDxrShaderRecordSize;
+
+	// Dimensions
+	desc.Width = maskW;
+	desc.Height = maskH;
+	desc.Depth = 1;
+
+	// Debug output (once per 60 frames)
+	static int debugCounter = 0;
+	if (++debugCounter >= 60)
+	{
+		debugCounter = 0;
+		std::cout << "[DXR] DispatchRays: " << maskW << "x" << maskH
+			<< ", instances=" << mDxrInstances.size()
+			<< ", samples=" << mDxrShadowSamples << "\n";
+	}
+
+	// 6. Dispatch rays!
+	cmdList4->DispatchRays(&desc);
+
+	// 7. Transition back
 	Transition(mDxrShadowMask.Get(), mDxrShadowMaskState, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 }
 
@@ -4121,7 +5034,7 @@ void RayTracingApp::CreateTaaHistoryTextures()
 			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
 			D3D12_HEAP_FLAG_NONE,
 			&texDesc,
-			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, 
+			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
 			&clearValue,
 			IID_PPV_ARGS(&mTaaHistory[i])
 		));

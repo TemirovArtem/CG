@@ -141,6 +141,10 @@ PSOutput PS(VertexOut pin)
     PSOutput outt;
 
     float4 diffuseTex = gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC);
+    
+    // Alpha testing для прозрачных текстур
+    clip(diffuseTex.a - 0.1f); // Отбрасываем пиксели с alpha < 0.1
+    
     outt.Albedo = diffuseTex * gDiffuseAlbedo;
     // Pack roughness into Albedo.a for deferred PBR.
     outt.Albedo.a = gRoughness;
